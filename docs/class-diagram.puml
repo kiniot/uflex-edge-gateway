@@ -1,0 +1,162 @@
+@startuml uFlex Edge Gateway - Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam handwritten false
+skinparam monochrome false
+skinparam shadowing false
+
+' Define packages for bounded contexts
+package "Monitoring Bounded Context" #DEEAFF {
+  ' Domain Layer
+  package "domain" #E2F0FF {
+    class MovementRecord {
+      id: int
+      device_id: str
+      angle: float
+      created_at: datetime
+      +__init__(device_id, angle, created_at, id)
+    }
+
+    class MovementRecordService {
+      +__init__()
+      +create_record(device_id, angle, created_at): MovementRecord
+    }
+  }
+
+  ' Application Layer
+  package "application" #D5E7FF {
+    class MovementRecordApplicationService {
+      -movement_record_repository: MovementRecordRepository
+      -movement_record_service: MovementRecordService
+      -device_repository: DeviceRepository
+      +__init__()
+      +create_movement_record(device_id, angle, created_at, api_key): MovementRecord
+    }
+  }
+
+  ' Infrastructure Layer
+  package "infrastructure" #C9DFFF {
+    class MovementRecordModel {
+      id: AutoField
+      device_id: CharField
+      angle: FloatField
+      created_at: DateTimeField
+    }
+
+    class MovementRecordRepository {
+      +save(movement_record): MovementRecord
+    }
+  }
+
+  ' Interface Layer
+  package "interfaces" #BCCEFF {
+    class monitoring_api {
+      +create_movement_record(): tuple
+    }
+  }
+}
+
+package "IAM Bounded Context" #FFEBDE {
+  ' Domain Layer
+  package "domain" #FFF2E8 {
+    class Device {
+      device_id: str
+      api_key: str
+      created_at: datetime
+      +__init__(device_id, api_key, created_at)
+    }
+
+    class AuthService {
+      +__init__()
+      +authenticate(device): bool
+    }
+  }
+
+  ' Application Layer
+  package "application" #FFE6D5 {
+    class AuthApplicationService {
+      -device_repository: DeviceRepository
+      -auth_service: AuthService
+      +__init__()
+      +authenticate(device_id, api_key): bool
+      +get_or_create_test_device(): Device
+    }
+  }
+
+  ' Infrastructure Layer
+  package "infrastructure" #FFDAC1 {
+    class DeviceModel {
+      device_id: CharField
+      api_key: CharField
+      created_at: DateTimeField
+    }
+
+    class DeviceRepository {
+      +find_by_id_and_api_key(device_id, api_key): Device
+      +get_or_create_test_device(): Device
+    }
+  }
+
+  ' Interface Layer
+  package "interfaces" #FFCEAE {
+    class iam_api {
+      +authenticate_request(): tuple
+    }
+  }
+}
+
+package "Shared Components" #E8FFE8 {
+  package "infrastructure" #D1FFD1 {
+    class db {
+      +connect()
+      +create_tables()
+      +close()
+    }
+
+    class init_db {
+      +init_db()
+    }
+  }
+}
+
+' Main application
+class app {
+  +setup()
+  +run()
+}
+
+' Relationships
+
+' Monitoring bounded context relationships
+MovementRecordApplicationService --> MovementRecordRepository: uses
+MovementRecordApplicationService --> MovementRecordService: uses
+MovementRecordApplicationService --> DeviceRepository: uses
+MovementRecordRepository --> MovementRecordModel: uses
+MovementRecordRepository ..> MovementRecord: creates
+MovementRecordService ..> MovementRecord: creates
+monitoring_api --> MovementRecordApplicationService: uses
+
+' IAM bounded context relationships
+AuthApplicationService --> DeviceRepository: uses
+AuthApplicationService --> AuthService: uses
+DeviceRepository --> DeviceModel: uses
+DeviceRepository ..> Device: creates
+AuthService ..> Device: authenticates
+iam_api --> AuthApplicationService: uses
+
+' Cross-context relationships
+MovementRecordApplicationService ..> Device: validates
+monitoring_api ..> iam_api: authenticate_request
+
+' Database relationships
+MovementRecordModel --> db: uses
+DeviceModel --> db: uses
+init_db ..> MovementRecordModel: creates tables
+init_db ..> DeviceModel: creates tables
+app ..> init_db: initializes
+app ..> monitoring_api: registers
+app ..> iam_api: registers
+
+@enduml

@@ -1,0 +1,158 @@
+```plantuml
+@startuml
+'https://plantuml.com/class-diagram
+
+title Edge Class Diagram - uFlex Edge Application
+
+class EdgeApplication {
+  - edgeId: String
+  - status: EdgeStatus
+  + start(): void
+  + stop(): void
+  + receiveTelemetry(): void
+  + synchronizeWithBackend(): void
+}
+
+class MqttBrokerClient {
+  - brokerUrl: String
+  - telemetryTopic: String
+  + connect(): void
+  + subscribe(topic: String): void
+  + publish(topic: String, message: String): void
+  + disconnect(): void
+}
+
+class TelemetryController {
+  + receive(packet: TelemetryPacket): void
+  + validate(packet: TelemetryPacket): boolean
+  + process(packet: TelemetryPacket): void
+}
+
+class TherapyEdgeService {
+  - activeSessionId: String
+  + startTherapySession(sessionId: String): void
+  + processMotion(packet: TelemetryPacket): ProcessedMetric
+  + detectAnomaly(metric: ProcessedMetric): boolean
+  + finishTherapySession(): void
+}
+
+class IamEdgeService {
+  - tokenSecret: String
+  + validateToken(token: String): boolean
+  + validateDevice(deviceId: String): boolean
+  + validateClinicAccess(clinicId: String): boolean
+}
+
+class TelemetryProcessor {
+  + filterNoise(packet: TelemetryPacket): TelemetryPacket
+  + calculateRangeOfMotion(packet: TelemetryPacket): float
+  + classifyMovement(angle: float): MovementStatus
+}
+
+class LocalBufferRepository {
+  - databasePath: String
+  + save(packet: TelemetryPacket): void
+  + saveMetric(metric: ProcessedMetric): void
+  + findPendingPackets(): List
+  + markAsSynced(packetId: String): void
+}
+
+class BackendApiClient {
+  - baseUrl: String
+  + sendTelemetry(metric: ProcessedMetric): void
+  + sendAlert(alert: EdgeAlert): void
+  + fetchTherapyPlan(patientId: String): TherapyPlanSnapshot
+}
+
+class EdgeAlertService {
+  + createAlert(metric: ProcessedMetric): EdgeAlert
+  + notifyBackend(alert: EdgeAlert): void
+}
+
+class TelemetryPacket {
+  - packetId: String
+  - deviceId: String
+  - sessionId: String
+  - angle: float
+  - batteryLevel: int
+  - timestamp: long
+}
+
+class ProcessedMetric {
+  - metricId: String
+  - sessionId: String
+  - rangeOfMotion: float
+  - movementStatus: MovementStatus
+  - timestamp: long
+}
+
+class EdgeAlert {
+  - alertId: String
+  - sessionId: String
+  - alertType: AlertType
+  - message: String
+  - createdAt: long
+}
+
+class TherapyPlanSnapshot {
+  - patientId: String
+  - exerciseName: String
+  - minAngle: float
+  - maxAngle: float
+  - repetitions: int
+}
+
+enum EdgeStatus {
+  STARTING
+  RUNNING
+  SYNCING
+  OFFLINE
+  ERROR
+}
+
+enum MovementStatus {
+  VALID
+  OUT_OF_RANGE
+  COMPENSATORY
+  INCOMPLETE
+}
+
+enum AlertType {
+  INVALID_MOVEMENT
+  LOW_BATTERY
+  DEVICE_DISCONNECTED
+  SESSION_INTERRUPTED
+}
+
+EdgeApplication *-- MqttBrokerClient
+EdgeApplication *-- TelemetryController
+EdgeApplication *-- TherapyEdgeService
+EdgeApplication *-- IamEdgeService
+EdgeApplication *-- LocalBufferRepository
+EdgeApplication *-- BackendApiClient
+
+TelemetryController ..> TelemetryPacket
+TelemetryController --> IamEdgeService
+TelemetryController --> TherapyEdgeService
+
+TherapyEdgeService *-- TelemetryProcessor
+TherapyEdgeService --> LocalBufferRepository
+TherapyEdgeService --> EdgeAlertService
+TherapyEdgeService ..> ProcessedMetric
+TherapyEdgeService ..> TherapyPlanSnapshot
+
+TelemetryProcessor ..> TelemetryPacket
+TelemetryProcessor ..> MovementStatus
+LocalBufferRepository ..> TelemetryPacket
+LocalBufferRepository ..> ProcessedMetric
+BackendApiClient ..> ProcessedMetric
+BackendApiClient ..> EdgeAlert
+EdgeAlertService ..> EdgeAlert
+EdgeAlertService --> BackendApiClient
+
+EdgeApplication ..> EdgeStatus
+EdgeAlert ..> AlertType
+ProcessedMetric ..> MovementStatus
+
+@enduml
+```

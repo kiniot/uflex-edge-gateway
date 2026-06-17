@@ -17,11 +17,13 @@ from flask import Flask
 import iam.application.services
 from monitoring.interfaces.services import monitoring_api
 from iam.interfaces.services import iam_api
+from shared.interfaces.docs import docs_api
 from shared.infrastructure.database import init_db
 
 app = Flask(__name__)
 app.register_blueprint(iam_api)
 app.register_blueprint(monitoring_api)
+app.register_blueprint(docs_api)
 
 first_request = True
 
@@ -47,5 +49,21 @@ def setup():
         auth_application_service = iam.application.services.AuthApplicationService()
         auth_application_service.get_or_create_test_device()
 
+@app.route("/status", methods=["GET"])
+def status():
+    """Health-check endpoint.
+
+    Lets clients (the clinic web, monitoring, or a teammate's curl) confirm the
+    edge gateway process is up and reachable on the network without touching
+    the authenticated data endpoints.
+
+    Returns:
+        tuple[dict, int]: A small JSON status document with HTTP 200.
+    """
+    return {"status": "ok", "service": "uflex-edge-gateway"}, 200
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    # host="0.0.0.0" => escucha en TODAS las interfaces de red (no solo
+    # localhost), para que el ESP32 pueda alcanzar la laptop por su IP de LAN.
+    app.run(host="0.0.0.0", port=5000, debug=True)

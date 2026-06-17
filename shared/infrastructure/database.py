@@ -39,6 +39,6 @@ def init_db() -> None:
     """
     db.connect()
     from iam.infrastructure.models import Device
-    from monitoring.infrastructure.models import MovementRecord
-    db.create_tables([Device, MovementRecord], safe=True)
+    from monitoring.infrastructure.models import MovementRecord, SerieExecution
+    db.create_tables([Device, MovementRecord, SerieExecution], safe=True)
     db.close()

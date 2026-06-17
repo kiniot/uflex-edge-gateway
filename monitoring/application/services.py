@@ -5,9 +5,14 @@ They orchestrate use-cases by coordinating domain services, domain entities,
 and repositories without containing domain logic themselves.
 """
 
-from monitoring.domain.entities import MovementRecord
-from monitoring.domain.services import MovementRecordService
-from monitoring.infrastructure.repositories import MovementRecordRepository
+from datetime import datetime, timezone
+
+from monitoring.domain.entities import MovementRecord, SerieExecution
+from monitoring.domain.services import MovementRecordService, MovementAnalysisService
+from monitoring.infrastructure.repositories import (
+    MovementRecordRepository,
+    SerieExecutionRepository,
+)
 from iam.infrastructure.repositories import DeviceRepository
 
 
@@ -68,3 +73,144 @@ class MovementRecordApplicationService:
             raise ValueError("Device not found")
         record = self.movement_record_service.create_record(device_id, angle, created_at)
         return self.movement_record_repository.save(record)
+
+
+class MovementAnalysisApplicationService:
+    """Application service that orchestrates the *read* and *analyse* use-cases.
+
+    It pulls stored readings from the repository and delegates the heavy
+    lifting to :class:`~monitoring.domain.services.MovementAnalysisService`,
+    returning the digested summary that the gateway exposes to clients and
+    (in a later iteration) forwards to the backend.
+    """
+
+    def __init__(self):
+        """Initialize the service with its required collaborators."""
+        self.movement_record_repository = MovementRecordRepository()
+        self.movement_analysis_service = MovementAnalysisService()
+
+    def get_recent_records(self, device_id: str = None, limit: int = 100) -> list[MovementRecord]:
+        """Return recent raw readings, optionally filtered by kit.
+
+        Args:
+            device_id (str, optional): When given, restrict results to this
+                kit.  When ``None``, return readings across all kits.
+            limit (int): Maximum number of readings to return.
+
+        Returns:
+            list[MovementRecord]: The matching readings.
+        """
+        if device_id:
+            return self.movement_record_repository.find_recent_by_device(device_id, limit)
+        return self.movement_record_repository.find_recent(limit)
+
+    def analyze_device(self, device_id: str, limit: int = 200,
+                       target_rom: float = None, max_safe_angle: float = None) -> dict:
+        """Produce the digested movement summary for one kit.
+
+        Args:
+            device_id (str): The kit to analyse.
+            limit (int): Maximum number of recent readings to feed the analysis.
+            target_rom (float, optional): Backend-defined range-of-motion goal.
+            max_safe_angle (float, optional): Backend-defined safety ceiling.
+
+        Returns:
+            dict: The summary returned by the domain service, enriched with the
+            ``device_id`` it describes.
+        """
+        samples = self.movement_record_repository.find_recent_by_device(device_id, limit)
+        summary = self.movement_analysis_service.analyze(samples, target_rom, max_safe_angle)
+        summary["device_id"] = device_id
+        return summary
+
+
+class SerieExecutionApplicationService:
+    """Application service that orchestrates the series-execution lifecycle.
+
+    Coordinates the IAM guard, the raw-reading buffer and the analysis domain
+    service across three use-cases: *start* a series, *end* it (classify
+    repetitions, aggregate, persist the result and purge the buffer) and *read*
+    a stored result.
+    """
+
+    def __init__(self):
+        """Initialize the service with its required collaborators."""
+        self.serie_execution_repository = SerieExecutionRepository()
+        self.movement_record_repository = MovementRecordRepository()
+        self.movement_analysis_service = MovementAnalysisService()
+        self.device_repository = DeviceRepository()
+
+    def start_serie(self, device_id: str, api_key: str, serie_id: str = None,
+                    target_rom: float = None, target_reps: int = None,
+                    movement_type: str = None, body_part: str = None,
+                    max_safe_angle: float = None) -> SerieExecution:
+        """Open a new series execution for a kit.
+
+        Verifies the kit identity, discards any lingering open execution and
+        clears the raw buffer so the new series starts clean, then persists an
+        OPEN :class:`SerieExecution` capturing the target parameters.
+
+        Raises:
+            ValueError: If the kit / API key pair is not registered.
+        """
+        if not self.device_repository.find_by_id_and_api_key(device_id, api_key):
+            raise ValueError("Device not found")
+        self.serie_execution_repository.discard_open_for_device(device_id)
+        self.movement_record_repository.delete_by_device(device_id)
+        execution = SerieExecution(
+            serie_id=serie_id,
+            device_id=device_id,
+            started_at=datetime.now(timezone.utc),
+            target_rom=target_rom,
+            target_reps=target_reps,
+            movement_type=movement_type,
+            body_part=body_part,
+            max_safe_angle=max_safe_angle,
+            status="OPEN",
+        )
+        return self.serie_execution_repository.save(execution)
+
+    def end_serie(self, device_id: str, api_key: str):
+        """Close the open series for a kit and compute its result.
+
+        Reads the buffered readings, classifies every repetition, aggregates the
+        outcome onto the execution, persists it as CLOSED and purges the raw
+        buffer.
+
+        Returns:
+            tuple[SerieExecution, list[dict]]: The closed execution and the
+            per-repetition breakdown.
+
+        Raises:
+            ValueError: If the kit is not registered or has no open series.
+        """
+        if not self.device_repository.find_by_id_and_api_key(device_id, api_key):
+            raise ValueError("Device not found")
+        execution = self.serie_execution_repository.find_open_by_device(device_id)
+        if not execution:
+            raise ValueError("No open series for device")
+
+        samples = self.movement_record_repository.find_all_by_device(device_id)
+        summary = self.movement_analysis_service.summarize_execution(
+            samples, execution.target_rom, execution.target_reps, execution.max_safe_angle
+        )
+
+        execution.ended_at = datetime.now(timezone.utc)
+        execution.status = "CLOSED"
+        execution.reps_done = summary["reps_done"]
+        execution.good_reps = summary["good_reps"]
+        execution.bad_reps_incomplete = summary["bad_reps_incomplete"]
+        execution.bad_reps_unsafe = summary["bad_reps_unsafe"]
+        execution.avg_rom = summary["avg_rom"]
+        execution.min_angle = summary["min_angle"]
+        execution.max_angle = summary["max_angle"]
+        execution.valoracion = summary["valoracion"]
+        execution.dangerous_movement_detected = summary["dangerous_movement_detected"]
+
+        self.serie_execution_repository.update(execution)
+        self.movement_record_repository.delete_by_device(device_id)
+        return execution, summary["repetitions"]
+
+    def get_result(self, execution_id: int):
+        """Return a stored series execution by id, or ``None`` when absent."""
+        return self.serie_execution_repository.find_by_id(execution_id)

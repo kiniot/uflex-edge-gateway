@@ -6,7 +6,10 @@ module belongs to the infrastructure layer and must not be referenced directly
 from the domain or application layers; access is mediated through the
 repository.
 """
-from peewee import Model, AutoField, FloatField, CharField, DateTimeField
+from peewee import (
+    Model, AutoField, FloatField, CharField, DateTimeField,
+    IntegerField, BooleanField,
+)
 
 from shared.infrastructure.database import db
 
@@ -38,3 +41,40 @@ class MovementRecord(Model):
 
         database = db
         table_name = 'movement_records'
+
+
+class SerieExecution(Model):
+    """ORM mapping for the ``serie_executions`` table.
+
+    Each row is the durable, chewed result of one executed therapy series:
+    repetition outcome (good/bad), achieved range of motion and quality score.
+    Raw ``movement_records`` are a transient buffer; this table is what persists
+    and is forwarded to the backend.
+    """
+
+    id = AutoField()
+    serie_id = CharField(null=True)
+    device_id = CharField()
+    target_rom = FloatField(null=True)
+    target_reps = IntegerField(null=True)
+    movement_type = CharField(null=True)
+    body_part = CharField(null=True)
+    max_safe_angle = FloatField(null=True)
+    started_at = DateTimeField()
+    ended_at = DateTimeField(null=True)
+    status = CharField()
+    reps_done = IntegerField(default=0)
+    good_reps = IntegerField(default=0)
+    bad_reps_incomplete = IntegerField(default=0)
+    bad_reps_unsafe = IntegerField(default=0)
+    avg_rom = FloatField(null=True)
+    min_angle = FloatField(null=True)
+    max_angle = FloatField(null=True)
+    valoracion = FloatField(null=True)
+    dangerous_movement_detected = BooleanField(default=False)
+
+    class Meta:
+        """Peewee metadata: binds the model to the shared database and names the table."""
+
+        database = db
+        table_name = 'serie_executions'

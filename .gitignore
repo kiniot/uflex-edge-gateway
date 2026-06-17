@@ -17,6 +17,9 @@ dist/
 *.db
 *.sqlite3
 
+# Runtime logs
+*.log
+
 # Environment variables
 .env
 .env.*

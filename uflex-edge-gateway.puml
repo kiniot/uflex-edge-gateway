@@ -1,169 +1,158 @@
+```plantuml
 @startuml
 'https://plantuml.com/class-diagram
 
-title uFlex Edge Gateway - Class Diagram
+title Edge Class Diagram - uFlex Edge Application
 
-skinparam packageStyle rectangle
-skinparam classAttributeIconSize 0
-
-package "Application" {
-  class EdgeGatewayApplication <<module: app.py>> {
-    - app: Flask
-    - first_request: bool
-    + setup(): void
-  }
+class EdgeApplication {
+  - edgeId: String
+  - status: EdgeStatus
+  + start(): void
+  + stop(): void
+  + receiveTelemetry(): void
+  + synchronizeWithBackend(): void
 }
 
-package "IAM" {
-  package "Domain" {
-    class "Device" as IAMDevice {
-      + device_id: str
-      + api_key: str
-      + created_at: datetime
-      + __init__(device_id: str, api_key: str, created_at: datetime)
-    }
-
-    class AuthService {
-      + {static} authenticate(device: Optional<Device>): bool
-    }
-  }
-
-  package "Application" {
-    class AuthApplicationService {
-      - device_repository: DeviceRepository
-      - auth_service: AuthService
-      + __init__()
-      + authenticate(device_id: str, api_key: str): bool
-      + get_or_create_test_device(): Device
-    }
-  }
-
-  package "Infrastructure" {
-    class "Device" as IAMDeviceModel <<Peewee Model>> {
-      + device_id: CharField
-      + api_key: CharField
-      + created_at: DateTimeField
-    }
-
-    class DeviceRepository {
-      + {static} find_by_id_and_api_key(device_id: str, api_key: str): Optional<Device>
-      + {static} get_or_create_test_device(): Device
-    }
-  }
-
-  package "Interfaces" {
-    class IAMInterfaceServices <<module>> {
-      - iam_api: Blueprint
-      - auth_service: AuthApplicationService
-      + authenticate_request(): Optional[tuple]
-    }
-  }
+class MqttBrokerClient {
+  - brokerUrl: String
+  - telemetryTopic: String
+  + connect(): void
+  + subscribe(topic: String): void
+  + publish(topic: String, message: String): void
+  + disconnect(): void
 }
 
-package "Monitoring" {
-  package "Domain" {
-    class "MovementRecord" as MovementRecordEntity {
-      + id: Optional[int]
-      + device_id: str
-      + angle: float
-      + created_at: datetime
-      + __init__(device_id: str, angle: float, created_at: datetime, id: int = None)
-    }
-
-    class MovementRecordService {
-      + {static} create_record(device_id: str, angle: float, created_at: Optional[str]): MovementRecord
-    }
-  }
-
-  package "Application" {
-    class MovementRecordApplicationService {
-      - movement_record_repository: MovementRecordRepository
-      - movement_record_service: MovementRecordService
-      - device_repository: DeviceRepository
-      + __init__()
-      + create_movement_record(device_id: str, angle: float, created_at: str, api_key: str): MovementRecord
-    }
-  }
-
-  package "Infrastructure" {
-    class "MovementRecord" as MovementRecordModel <<Peewee Model>> {
-      + id: AutoField
-      + device_id: CharField
-      + angle: FloatField
-      + created_at: DateTimeField
-    }
-
-    class MovementRecordRepository {
-      + {static} save(movement_record: MovementRecord): MovementRecord
-    }
-  }
-
-  package "Interfaces" {
-    class MonitoringInterfaceServices <<module>> {
-      - monitoring_api: Blueprint
-      - movement_record_service: MovementRecordApplicationService
-      + create_movement_record(): tuple
-    }
-  }
+class TelemetryController {
+  + receive(packet: TelemetryPacket): void
+  + validate(packet: TelemetryPacket): boolean
+  + process(packet: TelemetryPacket): void
 }
 
-package "Shared" {
-  package "Infrastructure" {
-    class DatabaseInfrastructure <<module>> {
-      - db: SqliteDatabase
-      + init_db(): void
-    }
-  }
+class TherapyEdgeService {
+  - activeSessionId: String
+  + startTherapySession(sessionId: String): void
+  + processMotion(packet: TelemetryPacket): ProcessedMetric
+  + detectAnomaly(metric: ProcessedMetric): boolean
+  + finishTherapySession(): void
 }
 
-package "External Libraries" {
-  class Flask <<Flask>>
-  class Blueprint <<Flask>>
-  class Model <<Peewee>>
-  class SqliteDatabase <<Peewee>>
+class IamEdgeService {
+  - tokenSecret: String
+  + validateToken(token: String): boolean
+  + validateDevice(deviceId: String): boolean
+  + validateClinicAccess(clinicId: String): boolean
 }
 
-Model <|-- IAMDeviceModel
-Model <|-- MovementRecordModel
+class TelemetryProcessor {
+  + filterNoise(packet: TelemetryPacket): TelemetryPacket
+  + calculateRangeOfMotion(packet: TelemetryPacket): float
+  + classifyMovement(angle: float): MovementStatus
+}
 
-EdgeGatewayApplication *-- Flask : creates
-EdgeGatewayApplication o-- Blueprint : registers iam_api
-EdgeGatewayApplication o-- Blueprint : registers monitoring_api
-EdgeGatewayApplication ..> DatabaseInfrastructure : init_db()
-EdgeGatewayApplication ..> AuthApplicationService : seed test device
-EdgeGatewayApplication ..> IAMInterfaceServices : imports iam_api
-EdgeGatewayApplication ..> MonitoringInterfaceServices : imports monitoring_api
+class LocalBufferRepository {
+  - databasePath: String
+  + save(packet: TelemetryPacket): void
+  + saveMetric(metric: ProcessedMetric): void
+  + findPendingPackets(): List
+  + markAsSynced(packetId: String): void
+}
 
-AuthApplicationService *-- DeviceRepository
-AuthApplicationService *-- AuthService
-AuthApplicationService ..> IAMDevice : returns
+class BackendApiClient {
+  - baseUrl: String
+  + sendTelemetry(metric: ProcessedMetric): void
+  + sendAlert(alert: EdgeAlert): void
+  + fetchTherapyPlan(patientId: String): TherapyPlanSnapshot
+}
 
-AuthService ..> IAMDevice : authenticates
+class EdgeAlertService {
+  + createAlert(metric: ProcessedMetric): EdgeAlert
+  + notifyBackend(alert: EdgeAlert): void
+}
 
-DeviceRepository ..> IAMDeviceModel : queries
-DeviceRepository ..> IAMDevice : maps to domain entity
-IAMDeviceModel ..> DatabaseInfrastructure : uses db
+class TelemetryPacket {
+  - packetId: String
+  - deviceId: String
+  - sessionId: String
+  - angle: float
+  - batteryLevel: int
+  - timestamp: long
+}
 
-IAMInterfaceServices *-- AuthApplicationService : singleton
-IAMInterfaceServices o-- Blueprint : iam_api
+class ProcessedMetric {
+  - metricId: String
+  - sessionId: String
+  - rangeOfMotion: float
+  - movementStatus: MovementStatus
+  - timestamp: long
+}
 
-MovementRecordApplicationService *-- MovementRecordRepository
-MovementRecordApplicationService *-- MovementRecordService
-MovementRecordApplicationService *-- DeviceRepository : validates device
-MovementRecordApplicationService ..> MovementRecordEntity : returns
+class EdgeAlert {
+  - alertId: String
+  - sessionId: String
+  - alertType: AlertType
+  - message: String
+  - createdAt: long
+}
 
-MovementRecordService ..> MovementRecordEntity : creates
+class TherapyPlanSnapshot {
+  - patientId: String
+  - exerciseName: String
+  - minAngle: float
+  - maxAngle: float
+  - repetitions: int
+}
 
-MovementRecordRepository ..> MovementRecordModel : persists
-MovementRecordRepository ..> MovementRecordEntity : maps to domain entity
-MovementRecordModel ..> DatabaseInfrastructure : uses db
+enum EdgeStatus {
+  STARTING
+  RUNNING
+  SYNCING
+  OFFLINE
+  ERROR
+}
 
-MonitoringInterfaceServices *-- MovementRecordApplicationService : singleton
-MonitoringInterfaceServices o-- Blueprint : monitoring_api
-MonitoringInterfaceServices ..> IAMInterfaceServices : authenticate_request()
+enum MovementStatus {
+  VALID
+  OUT_OF_RANGE
+  COMPENSATORY
+  INCOMPLETE
+}
 
-DatabaseInfrastructure *-- SqliteDatabase : db
-DatabaseInfrastructure ..> IAMDeviceModel : creates table
-DatabaseInfrastructure ..> MovementRecordModel : creates table
+enum AlertType {
+  INVALID_MOVEMENT
+  LOW_BATTERY
+  DEVICE_DISCONNECTED
+  SESSION_INTERRUPTED
+}
+
+EdgeApplication *-- MqttBrokerClient
+EdgeApplication *-- TelemetryController
+EdgeApplication *-- TherapyEdgeService
+EdgeApplication *-- IamEdgeService
+EdgeApplication *-- LocalBufferRepository
+EdgeApplication *-- BackendApiClient
+
+TelemetryController ..> TelemetryPacket
+TelemetryController --> IamEdgeService
+TelemetryController --> TherapyEdgeService
+
+TherapyEdgeService *-- TelemetryProcessor
+TherapyEdgeService --> LocalBufferRepository
+TherapyEdgeService --> EdgeAlertService
+TherapyEdgeService ..> ProcessedMetric
+TherapyEdgeService ..> TherapyPlanSnapshot
+
+TelemetryProcessor ..> TelemetryPacket
+TelemetryProcessor ..> MovementStatus
+LocalBufferRepository ..> TelemetryPacket
+LocalBufferRepository ..> ProcessedMetric
+BackendApiClient ..> ProcessedMetric
+BackendApiClient ..> EdgeAlert
+EdgeAlertService ..> EdgeAlert
+EdgeAlertService --> BackendApiClient
+
+EdgeApplication ..> EdgeStatus
+EdgeAlert ..> AlertType
+ProcessedMetric ..> MovementStatus
 
 @enduml
+```

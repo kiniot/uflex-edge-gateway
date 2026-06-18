@@ -28,12 +28,28 @@ solution:
   - authentication of kit-originated requests
   - creation and persistence of movement records (flexion angle)
   - timestamp normalization to UTC
+  - movement analysis: range of motion, repetition counting, min/max/mean,
+    peak angular velocity and duration (`GET .../analysis`)
+  - threshold evaluation against backend-supplied goals/limits, yielding an
+    `actuator_action` decision
+  - per-repetition quality classification (good / incomplete / unsafe)
+  - series execution lifecycle: `start` / `end` / `result`, with a durable
+    `serie_executions` table (good/bad reps, average ROM, valoración, danger
+    flag) and raw-buffer purging
+  - listing recent raw readings (`GET .../data-records`)
+  - a health check endpoint (`GET /status`)
+  - interactive API docs via Scalar (`GET /scalar`, `GET /openapi.json`)
 - **Not implemented yet**
-  - repetition counting and threshold evaluation
-  - movement alerts (out-of-range motion)
+  - sending the `actuator_action` decision to the device (actuator transport)
+  - fetching thresholds from the backend (currently passed per request)
+  - forwarding the series result to the backend therapy session
   - battery / kit-status telemetry
-  - cloud synchronization with the uFlex REST API
-  - a dedicated health check endpoint such as `GET /status`
+
+See [`docs/movement-monitoring-api.md`](docs/movement-monitoring-api.md) for the
+full request/response contract and the definition of every processed metric, and
+[`docs/edge-execution-design.md`](docs/edge-execution-design.md) for the
+therapy-execution model (per-repetition quality, series results, and the
+remaining backend-forwarding/actuator work).
 
 Keeping the README aligned with the implemented scope is especially important
 in IoT projects, where device contracts and API behavior must remain explicit

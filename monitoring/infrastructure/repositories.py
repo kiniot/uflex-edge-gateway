@@ -31,7 +31,8 @@ def _to_entity(model: MovementRecordModel) -> MovementRecord:
     domain logic (velocity, duration) can always rely on a real ``datetime``.
     """
     return MovementRecord(model.device_id, model.angle,
-                          _coerce_datetime(model.created_at), model.id)
+                          _coerce_datetime(model.created_at), model.id,
+                          model.serie_id)
 
 
 def _to_serie_entity(model: SerieExecutionModel) -> SerieExecution:
@@ -89,6 +90,7 @@ class MovementRecordRepository:
         """
         record = MovementRecordModel.create(
             device_id=movement_record.device_id,
+            serie_id=movement_record.serie_id,
             angle=movement_record.angle,
             created_at=movement_record.created_at,
         )
@@ -97,6 +99,7 @@ class MovementRecordRepository:
             movement_record.angle,
             movement_record.created_at,
             record.id,
+            movement_record.serie_id,
         )
 
     @staticmethod
@@ -160,14 +163,36 @@ class MovementRecordRepository:
         return [_to_entity(row) for row in query]
 
     @staticmethod
-    def delete_by_device(device_id: str) -> int:
-        """Purge all buffered raw readings for a kit.
+    def find_by_serie_id(serie_id: str) -> list[MovementRecord]:
+        """Return every raw reading stamped with ``serie_id``, oldest-to-newest.
 
-        Called when a series starts (clear stale buffer) and after it closes
-        (the durable summary now holds the result, so the raw data is dropped).
+        This is how a closed series is summarised and how the demo links the raw
+        buffer to its chewed result: both ``movement_records`` and the matching
+        ``serie_executions`` row share the same ``serie_id``.
 
         Args:
-            device_id (str): The kit whose buffer is cleared.
+            serie_id (str): The series whose readings are requested.
+
+        Returns:
+            list[MovementRecord]: Chronologically ordered readings (possibly empty).
+        """
+        query = (MovementRecordModel
+                 .select()
+                 .where(MovementRecordModel.serie_id == serie_id)
+                 .order_by(MovementRecordModel.id.asc()))
+        return [_to_entity(row) for row in query]
+
+    @staticmethod
+    def delete_by_device(device_id: str) -> int:
+        """Delete every raw reading for a kit (manual reset only).
+
+        Readings are no longer purged automatically on start/end of a series:
+        they are kept and linked to their ``serie_id`` so the raw data and its
+        processed result can be inspected side by side.  This remains available
+        for an explicit reset of a kit's buffer.
+
+        Args:
+            device_id (str): The kit whose readings are deleted.
 
         Returns:
             int: Number of rows deleted.
@@ -270,3 +295,23 @@ class SerieExecutionRepository:
             return _to_serie_entity(SerieExecutionModel.get_by_id(execution_id))
         except SerieExecutionModel.DoesNotExist:
             return None
+
+    @staticmethod
+    def find_recent(device_id: str = None, limit: int = 50) -> list[SerieExecution]:
+        """Return recent series executions newest-first, optionally by kit.
+
+        Backs the ``GET /series`` listing: the processed history the backend (or,
+        in the demo, the Scalar UI) consumes.
+
+        Args:
+            device_id (str, optional): Restrict to one kit when given.
+            limit (int): Maximum executions to return.
+
+        Returns:
+            list[SerieExecution]: Executions ordered newest-to-oldest.
+        """
+        query = SerieExecutionModel.select()
+        if device_id:
+            query = query.where(SerieExecutionModel.device_id == device_id)
+        query = query.order_by(SerieExecutionModel.id.desc()).limit(limit)
+        return [_to_serie_entity(row) for row in query]

@@ -21,11 +21,15 @@ class MovementRecord:
             after the record is saved.  ``None`` for transient (unsaved)
             instances.
         device_id (str): Identifier of the kit that produced the reading.
+        serie_id (str | None): Reference to the open series this reading belongs
+            to, stamped at ingest time from the device's OPEN series execution.
+            ``None`` when no series was open when the reading arrived.
         angle (float): Joint flexion angle measured in degrees.
         created_at (datetime): UTC timestamp of when the reading was taken.
     """
 
-    def __init__(self, device_id: str, angle: float, created_at: datetime, id: int = None):
+    def __init__(self, device_id: str, angle: float, created_at: datetime,
+                 id: int = None, serie_id: str = None):
         """Initialise a MovementRecord entity.
 
         Args:
@@ -34,9 +38,12 @@ class MovementRecord:
             created_at (datetime): UTC timestamp of the reading.
             id (int, optional): Persistence identity.  Defaults to ``None``
                 for transient entities that have not been saved yet.
+            serie_id (str, optional): Series this reading belongs to.  Defaults
+                to ``None`` for readings captured outside an open series.
         """
         self.id = id
         self.device_id = device_id
+        self.serie_id = serie_id
         self.angle = angle
         self.created_at = created_at
 

@@ -31,9 +31,14 @@ OPENAPI_SPEC = {
     "servers": [{"url": "/", "description": "This gateway"}],
     "tags": [
         {"name": "Health"},
-        {"name": "Ingestion"},
-        {"name": "Analysis"},
-        {"name": "Series execution"},
+        {"name": "Ingestion",
+         "description": "Raw real-time readings as they arrive from the IoT Kit "
+                        "(the data we store)."},
+        {"name": "Analysis",
+         "description": "On-the-fly digested metrics for a kit (debug view)."},
+        {"name": "Series execution",
+         "description": "Processed series results — the chewed data the backend "
+                        "(and the mobile/web app) would consume."},
     ],
     "components": {
         "securitySchemes": {
@@ -149,6 +154,17 @@ OPENAPI_SPEC = {
                     "400": {"description": "Missing fields or no open series"},
                     "401": {"description": "Bad credentials"},
                 },
+            }
+        },
+        "/api/v1/movement-monitoring/series": {
+            "get": {
+                "tags": ["Series execution"],
+                "summary": "List processed series results (what the backend consumes)",
+                "parameters": [
+                    {"name": "device_id", "in": "query", "schema": {"type": "string"}},
+                    {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}},
+                ],
+                "responses": {"200": {"description": "Array of processed series executions"}},
             }
         },
         "/api/v1/movement-monitoring/series/{execution_id}/result": {

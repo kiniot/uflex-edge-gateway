@@ -27,7 +27,8 @@ class MovementRecordService:
     """
 
     @staticmethod
-    def create_record(device_id: str, angle: float, created_at: str | None) -> MovementRecord:
+    def create_record(device_id: str, angle: float, created_at: str | None,
+                      serie_id: str | None = None) -> MovementRecord:
         """Validate raw sensor data and create a new :class:`MovementRecord` entity.
 
         Applies the domain invariants before constructing the aggregate:
@@ -43,6 +44,8 @@ class MovementRecordService:
             created_at (str | None): ISO 8601 timestamp of the reading
                 (e.g. ``'2026-05-29T18:23:00-05:00'``), or ``None`` to
                 default to the current UTC time.
+            serie_id (str | None): Series this reading belongs to, stamped by
+                the application service from the device's open series execution.
 
         Returns:
             MovementRecord: A new, unsaved :class:`MovementRecord` domain
@@ -64,7 +67,7 @@ class MovementRecordService:
         except (ValueError, TypeError):
             raise ValueError("Invalid data format")
 
-        return MovementRecord(device_id, angle, parsed_created_at)
+        return MovementRecord(device_id, angle, parsed_created_at, serie_id=serie_id)
 
 
 class MovementAnalysisService:

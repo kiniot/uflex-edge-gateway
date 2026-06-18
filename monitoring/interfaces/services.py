@@ -108,6 +108,7 @@ def create_movement_record():
         return jsonify({
             "id": record.id,
             "device_id": record.device_id,
+            "serie_id": record.serie_id,
             "angle": record.angle,
             "created_at": record.created_at.isoformat() + "Z"
         }), 201
@@ -141,6 +142,7 @@ def list_movement_records():
         {
             "id": record.id,
             "device_id": record.device_id,
+            "serie_id": record.serie_id,
             "angle": record.angle,
             "created_at": record.created_at.isoformat(),
         }
@@ -259,6 +261,32 @@ def end_serie():
         return jsonify({"error": "Missing required fields"}), 400
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@monitoring_api.route("/api/v1/movement-monitoring/series", methods=["GET"])
+def list_serie_executions():
+    """List processed series executions — the chewed history the backend consumes.
+
+    This is the *processed* counterpart of ``GET /data-records`` (raw readings):
+    each row is a closed series with its repetition quality, achieved ROM and
+    ``valoracion``.  Empty until at least one series has been started and ended.
+
+    **Query parameters:**
+
+    - ``device_id`` *(str, optional)*: Restrict results to a single kit.
+    - ``limit`` *(int, optional)*: Maximum executions to return (default 50).
+
+    **Responses:**
+
+    - ``200 OK`` – JSON array of series executions, newest first.
+
+    Returns:
+        tuple[flask.Response, int]: The executions as JSON with HTTP 200.
+    """
+    device_id = request.args.get("device_id")
+    limit = request.args.get("limit", default=50, type=int)
+    executions = serie_execution_service.list_executions(device_id, limit)
+    return jsonify([_serie_execution_to_dict(e) for e in executions]), 200
 
 
 @monitoring_api.route("/api/v1/movement-monitoring/series/<int:execution_id>/result", methods=["GET"])

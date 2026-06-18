@@ -26,6 +26,11 @@ class MovementRecord(Model):
         device_id (CharField): Reference to the kit that produced the reading.
             Stored as a plain string (not a FK constraint) to keep the bounded
             contexts loosely coupled.
+        serie_id (CharField): Reference to the open series this reading belongs
+            to (the ``serie_id`` of the OPEN ``serie_executions`` row at ingest
+            time).  ``null`` when the reading arrived with no series open.  This
+            is what links the raw buffer to its chewed result, so both tables can
+            be filtered by the same ``serie_id``.
         angle (FloatField): Joint flexion angle measured in degrees.
         created_at (DateTimeField): UTC timestamp of when the reading was
             captured by the kit.
@@ -33,6 +38,7 @@ class MovementRecord(Model):
 
     id = AutoField()
     device_id = CharField()
+    serie_id = CharField(null=True)
     angle = FloatField()
     created_at = DateTimeField()
 

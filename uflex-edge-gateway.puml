@@ -1,0 +1,169 @@
+@startuml
+'https://plantuml.com/class-diagram
+
+title uFlex Edge Gateway - Class Diagram
+
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+
+package "Application" {
+  class EdgeGatewayApplication <<module: app.py>> {
+    - app: Flask
+    - first_request: bool
+    + setup(): void
+  }
+}
+
+package "IAM" {
+  package "Domain" {
+    class "Device" as IAMDevice {
+      + device_id: str
+      + api_key: str
+      + created_at: datetime
+      + __init__(device_id: str, api_key: str, created_at: datetime)
+    }
+
+    class AuthService {
+      + {static} authenticate(device: Optional<Device>): bool
+    }
+  }
+
+  package "Application" {
+    class AuthApplicationService {
+      - device_repository: DeviceRepository
+      - auth_service: AuthService
+      + __init__()
+      + authenticate(device_id: str, api_key: str): bool
+      + get_or_create_test_device(): Device
+    }
+  }
+
+  package "Infrastructure" {
+    class "Device" as IAMDeviceModel <<Peewee Model>> {
+      + device_id: CharField
+      + api_key: CharField
+      + created_at: DateTimeField
+    }
+
+    class DeviceRepository {
+      + {static} find_by_id_and_api_key(device_id: str, api_key: str): Optional<Device>
+      + {static} get_or_create_test_device(): Device
+    }
+  }
+
+  package "Interfaces" {
+    class IAMInterfaceServices <<module>> {
+      - iam_api: Blueprint
+      - auth_service: AuthApplicationService
+      + authenticate_request(): Optional[tuple]
+    }
+  }
+}
+
+package "Monitoring" {
+  package "Domain" {
+    class "MovementRecord" as MovementRecordEntity {
+      + id: Optional[int]
+      + device_id: str
+      + angle: float
+      + created_at: datetime
+      + __init__(device_id: str, angle: float, created_at: datetime, id: int = None)
+    }
+
+    class MovementRecordService {
+      + {static} create_record(device_id: str, angle: float, created_at: Optional[str]): MovementRecord
+    }
+  }
+
+  package "Application" {
+    class MovementRecordApplicationService {
+      - movement_record_repository: MovementRecordRepository
+      - movement_record_service: MovementRecordService
+      - device_repository: DeviceRepository
+      + __init__()
+      + create_movement_record(device_id: str, angle: float, created_at: str, api_key: str): MovementRecord
+    }
+  }
+
+  package "Infrastructure" {
+    class "MovementRecord" as MovementRecordModel <<Peewee Model>> {
+      + id: AutoField
+      + device_id: CharField
+      + angle: FloatField
+      + created_at: DateTimeField
+    }
+
+    class MovementRecordRepository {
+      + {static} save(movement_record: MovementRecord): MovementRecord
+    }
+  }
+
+  package "Interfaces" {
+    class MonitoringInterfaceServices <<module>> {
+      - monitoring_api: Blueprint
+      - movement_record_service: MovementRecordApplicationService
+      + create_movement_record(): tuple
+    }
+  }
+}
+
+package "Shared" {
+  package "Infrastructure" {
+    class DatabaseInfrastructure <<module>> {
+      - db: SqliteDatabase
+      + init_db(): void
+    }
+  }
+}
+
+package "External Libraries" {
+  class Flask <<Flask>>
+  class Blueprint <<Flask>>
+  class Model <<Peewee>>
+  class SqliteDatabase <<Peewee>>
+}
+
+Model <|-- IAMDeviceModel
+Model <|-- MovementRecordModel
+
+EdgeGatewayApplication *-- Flask : creates
+EdgeGatewayApplication o-- Blueprint : registers iam_api
+EdgeGatewayApplication o-- Blueprint : registers monitoring_api
+EdgeGatewayApplication ..> DatabaseInfrastructure : init_db()
+EdgeGatewayApplication ..> AuthApplicationService : seed test device
+EdgeGatewayApplication ..> IAMInterfaceServices : imports iam_api
+EdgeGatewayApplication ..> MonitoringInterfaceServices : imports monitoring_api
+
+AuthApplicationService *-- DeviceRepository
+AuthApplicationService *-- AuthService
+AuthApplicationService ..> IAMDevice : returns
+
+AuthService ..> IAMDevice : authenticates
+
+DeviceRepository ..> IAMDeviceModel : queries
+DeviceRepository ..> IAMDevice : maps to domain entity
+IAMDeviceModel ..> DatabaseInfrastructure : uses db
+
+IAMInterfaceServices *-- AuthApplicationService : singleton
+IAMInterfaceServices o-- Blueprint : iam_api
+
+MovementRecordApplicationService *-- MovementRecordRepository
+MovementRecordApplicationService *-- MovementRecordService
+MovementRecordApplicationService *-- DeviceRepository : validates device
+MovementRecordApplicationService ..> MovementRecordEntity : returns
+
+MovementRecordService ..> MovementRecordEntity : creates
+
+MovementRecordRepository ..> MovementRecordModel : persists
+MovementRecordRepository ..> MovementRecordEntity : maps to domain entity
+MovementRecordModel ..> DatabaseInfrastructure : uses db
+
+MonitoringInterfaceServices *-- MovementRecordApplicationService : singleton
+MonitoringInterfaceServices o-- Blueprint : monitoring_api
+MonitoringInterfaceServices ..> IAMInterfaceServices : authenticate_request()
+
+DatabaseInfrastructure *-- SqliteDatabase : db
+DatabaseInfrastructure ..> IAMDeviceModel : creates table
+DatabaseInfrastructure ..> MovementRecordModel : creates table
+
+@enduml

@@ -17,17 +17,17 @@ class Device(Model):
     which is used to authenticate inbound requests.
 
     Attributes:
-        device_id (CharField): Natural primary key — the human-readable kit
-            identifier / serial number (e.g. ``'uflex-kit-001'``).
+        serial_number (CharField): Natural primary key — the kit's cross-service
+            serial number (e.g. ``'uflex-kit-001'``).
         api_key (CharField): Secret key paired with the kit, checked on every
             authenticated API call.
         created_at (DateTimeField): UTC timestamp recording when the kit was
             first registered.
     """
 
-    device_id  = CharField(primary_key=True)
-    api_key    = CharField()
-    created_at = DateTimeField()
+    serial_number = CharField(primary_key=True)
+    api_key       = CharField()
+    created_at    = DateTimeField()
 
     class Meta:
         """Peewee metadata: binds the model to the shared database and names the table."""

@@ -10,30 +10,28 @@ from datetime import datetime
 class Device:
     """Aggregate root representing a registered uFlex IoT Kit.
 
-    A ``Device`` is the core identity object in the IAM bounded context.
-    It is identified by a unique ``device_id`` (the kit serial number) and
-    authenticated via its paired ``api_key``.  Device registration (creation)
-    and look-up are managed by the
-    :class:`~iam.infrastructure.repositories.DeviceRepository`.
+    A ``Device`` is the core identity object in the IAM bounded context. It is
+    identified by its ``serial_number`` (the kit's cross-service identity, equal
+    to the backend's ``serialNumber`` and the value the embedded firmware reports)
+    and authenticated via its paired ``api_key``.
 
     Attributes:
-        device_id (str): Immutable, unique identifier for the kit
-            (e.g. ``'uflex-kit-001'``).
-        api_key (str): Secret key used to authenticate HTTP requests
-            originating from this kit.  Transmitted via the
-            ``X-API-Key`` header.
-        created_at (datetime): UTC timestamp recording when the kit was
-            first registered in the system.
+        serial_number (str): Immutable, unique cross-service identifier for the
+            kit (e.g. ``'uflex-kit-001'``). Natural key of the device.
+        api_key (str): Secret key used to authenticate HTTP requests originating
+            from this kit, transmitted via the ``X-API-Key`` header.
+        created_at (datetime): UTC timestamp recording when the kit was first
+            registered in the system.
     """
 
-    def __init__(self, device_id: str, api_key: str, created_at: datetime):
+    def __init__(self, serial_number: str, api_key: str, created_at: datetime):
         """Initialise a Device aggregate root.
 
         Args:
-            device_id (str): Unique identifier for the kit.
+            serial_number (str): Unique cross-service identifier for the kit.
             api_key (str): Secret API key used for request authentication.
             created_at (datetime): UTC timestamp of kit registration.
         """
-        self.device_id = device_id
+        self.serial_number = serial_number
         self.api_key = api_key
         self.created_at = created_at

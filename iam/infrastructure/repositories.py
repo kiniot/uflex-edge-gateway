@@ -18,33 +18,32 @@ from iam.infrastructure.models import Device as DeviceModel
 class DeviceRepository:
     """Repository that persists and reconstructs :class:`~iam.domain.entities.Device` entities.
 
-    Implements the collection-like interface expected by application services.
     All ORM-to-entity mapping is contained within this class, ensuring the
     domain layer has no dependency on Peewee.
     """
 
     @staticmethod
-    def find_by_id_and_api_key(device_id: str, api_key: str) -> Optional[Device]:
-        """Look up a kit by its identifier and API key.
+    def find_by_serial_and_api_key(serial_number: str, api_key: str) -> Optional[Device]:
+        """Look up a kit by its serial number and API key.
 
-        Queries the ``devices`` table for a row matching **both** ``device_id``
-        and ``api_key``.  Returning ``None`` when no match is found (rather
-        than raising) lets the domain service apply the authentication rule
-        without catching infrastructure exceptions.
+        Queries the ``devices`` table for a row matching **both**
+        ``serial_number`` and ``api_key``. Returns ``None`` when no match is
+        found (rather than raising) so the domain service can apply the
+        authentication rule without catching infrastructure exceptions.
 
         Args:
-            device_id (str): The kit identifier to search for.
+            serial_number (str): The kit serial to search for.
             api_key (str): The API key that must match the stored credential.
 
         Returns:
-            Optional[Device]: The corresponding :class:`~iam.domain.entities.Device`
-            entity if a matching row exists; ``None`` otherwise.
+            Optional[Device]: The corresponding entity if a matching row exists;
+            ``None`` otherwise.
         """
         try:
             device = DeviceModel.get(
-                (DeviceModel.device_id == device_id) & (DeviceModel.api_key == api_key)
+                (DeviceModel.serial_number == serial_number) & (DeviceModel.api_key == api_key)
             )
-            return Device(device.device_id, device.api_key, device.created_at)
+            return Device(device.serial_number, device.api_key, device.created_at)
         except peewee.DoesNotExist:
             return None
 
@@ -52,17 +51,15 @@ class DeviceRepository:
     def get_or_create_test_device() -> Device:
         """Retrieve the default test kit, creating it if absent.
 
-        Performs an idempotent ``get_or_create`` against the ``devices``
-        table.  The test kit uses well-known, hard-coded credentials intended
-        for local development and integration testing only — these credentials
-        must never be used in a production environment.
+        Performs an idempotent ``get_or_create`` against the ``devices`` table.
+        The test kit uses well-known, hard-coded credentials intended for local
+        development and integration testing only — never for production.
 
         Returns:
-            Device: The :class:`~iam.domain.entities.Device` entity for
-            ``device_id='uflex-kit-001'``.
+            Device: The entity for ``serial_number='uflex-kit-001'``.
         """
         device, _ = DeviceModel.get_or_create(
-            device_id="uflex-kit-001",
+            serial_number="uflex-kit-001",
             defaults={"api_key": "test-api-key-123", "created_at": "2026-05-29T23:23:00Z"},
         )
-        return Device(device.device_id, device.api_key, device.created_at)
+        return Device(device.serial_number, device.api_key, device.created_at)

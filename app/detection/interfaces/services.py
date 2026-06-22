@@ -8,7 +8,11 @@ the in-memory window. The batch ``series/start|end`` lifecycle was removed.
 """
 from flask import Blueprint, request, jsonify
 
-from app.iam.interfaces.services import authenticate_request, kit_serial_from_request
+from app.iam.interfaces.services import (
+    authenticate_request,
+    authenticate_request_query,
+    kit_serial_from_request,
+)
 from app.detection.composition import debug_service, ingest_service
 
 detection_api = Blueprint("detection_api", __name__)
@@ -31,6 +35,19 @@ def create_movement_record():
 
     data = request.json or {}
     serial_number = kit_serial_from_request()
+
+    # Enriched batch contract (firmware): {serial_number, samples:[{target_angle, proximal_signal?}]}.
+    if "samples" in data:
+        samples = data["samples"]
+        if not isinstance(samples, list) or not samples:
+            return jsonify({"error": "samples must be a non-empty array"}), 400
+        try:
+            built = ingest_service.ingest_batch(serial_number, samples)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"serial_number": serial_number, "accepted": len(built)}), 201
+
+    # Legacy single-sample contract: {serial_number|device_id, angle, created_at?}.
     if "angle" not in data:
         return jsonify({"error": "Missing required fields"}), 400
     try:
@@ -67,3 +84,19 @@ def analyze_movement():
     if not serial_number:
         return jsonify({"error": "Missing serial_number query parameter"}), 400
     return jsonify(debug_service.window_summary(serial_number)), 200
+
+
+@detection_api.route("/api/v1/movement-monitoring/active-context", methods=["GET"])
+def get_active_context():
+    """Return the kit's active serie context (firmware down-channel).
+
+    Auth: ``X-API-Key`` + ``serial_number`` query param. Returns
+    ``{serial_number, active_joint, max_safe_angle, serie_id}`` (nulls when no
+    serie is active). The firmware maps ``active_joint`` to an IMU pair, applies
+    ``max_safe_angle`` for local safety, and re-zeros on a new ``serie_id``.
+    """
+    auth_result = authenticate_request_query()
+    if auth_result:
+        return auth_result
+    serial_number = request.args.get("serial_number") or request.args.get("device_id")
+    return jsonify(debug_service.active_context(serial_number)), 200

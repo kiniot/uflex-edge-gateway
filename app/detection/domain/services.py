@@ -5,6 +5,7 @@ repetition detector — a hysteresis state machine that consumes one angle at a
 time and emits a repetition as soon as a flex-and-return cycle completes (rather
 than analysing a whole buffer in batch).
 """
+import logging
 from datetime import datetime, timezone
 from statistics import mean
 from typing import Optional
@@ -20,14 +21,53 @@ REP_DETECTION_FRACTION = 0.5
 # backend does not store maxSafeAngle (the edge derives it); revisit clinically.
 SAFE_MARGIN_DEGREES = 15.0
 
+logger = logging.getLogger(__name__)
 
-def build_sample(serial_number: str, angle, created_at: Optional[str]) -> MovementSample:
+# Maps a backend body-part value to the firmware's joint enum. The backend emits
+# the BodyPart enum name (ELBOW/WRIST); lowercase and a couple of Spanish terms
+# are tolerated defensively so an unmapped value is visible, not silent.
+_JOINT_ALIASES = {
+    "elbow": "ELBOW", "codo": "ELBOW",
+    "wrist": "WRIST", "muneca": "WRIST", "muñeca": "WRIST",
+}
+
+
+def normalize_joint(body_part: Optional[str]) -> Optional[str]:
+    """Normalize a backend body-part string to the firmware joint enum.
+
+    Returns ``"ELBOW"`` | ``"WRIST"`` | ``None`` (case-insensitive). An unmapped,
+    non-empty value is logged at WARNING and returns ``None`` so the firmware
+    falls back to no active joint rather than a wrong one.
+    """
+    if not body_part:
+        return None
+    joint = _JOINT_ALIASES.get(body_part.strip().lower())
+    if joint is None:
+        logger.warning("Unmapped body_part '%s' (no joint normalization)", body_part)
+    return joint
+
+
+def _coerce_optional_float(value) -> Optional[float]:
+    """Best-effort float coercion that never raises (returns ``None`` on failure)."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def build_sample(serial_number: str, angle, created_at: Optional[str],
+                 proximal=None) -> MovementSample:
     """Validate raw sensor input and build a :class:`MovementSample`.
 
     Args:
         serial_number: Originating kit serial.
         angle: Joint flexion angle; coerced to float, validated in [0, 360].
         created_at: ISO 8601 timestamp; UTC-normalized, or current UTC if ``None``.
+        proximal: Optional proximal-segment signal (degrees). Coerced leniently to
+            float, or dropped to ``None`` on a bad value — it is Wave-2 telemetry,
+            so it never rejects an otherwise-valid sample.
 
     Raises:
         ValueError: On a non-numeric/out-of-range angle or a malformed timestamp.
@@ -39,7 +79,8 @@ def build_sample(serial_number: str, angle, created_at: Optional[str]) -> Moveme
         recorded_at = parse(created_at).astimezone(timezone.utc) if created_at else datetime.now(timezone.utc)
     except (ValueError, TypeError):
         raise ValueError("Invalid data format")
-    return MovementSample(serial_number=serial_number, angle=angle, recorded_at=recorded_at)
+    return MovementSample(serial_number=serial_number, angle=angle, recorded_at=recorded_at,
+                          proximal_signal=_coerce_optional_float(proximal))
 
 
 def derive_max_safe_angle(target_rom: Optional[float]) -> Optional[float]:

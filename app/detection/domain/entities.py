@@ -14,14 +14,17 @@ from typing import Optional
 class MovementSample:
     """A single movement reading from the kit.
 
-    Intentionally minimal for now (one relative joint angle); designed to grow
-    with proximal-segment fields when the firmware is enriched for compensatory
-    movement detection (§13.4).
+    Carries the active joint's absolute flexion ``angle`` (degrees, zero-offset
+    calibrated by the firmware) plus an optional ``proximal_signal`` (proximal-
+    segment yaw). The angle drives repetition detection now; the proximal signal
+    is populated by the firmware but consumed only in Wave 2 (compensatory
+    movement detection, §13.4).
     """
 
     serial_number: str
     angle: float
     recorded_at: datetime
+    proximal_signal: Optional[float] = None
 
 
 @dataclass

@@ -1,5 +1,5 @@
 """Unit tests for the incremental repetition detector."""
-from monitoring.domain.services import IncrementalRepetitionDetector
+from app.detection.domain.services import IncrementalRepetitionDetector
 
 
 def _detect(angles, target_rom=None, max_safe_angle=None):

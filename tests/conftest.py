@@ -1,9 +1,9 @@
 """Shared pytest fixtures for the edge gateway tests."""
 import pytest
 
-from shared.infrastructure.database import db
-from iam.infrastructure.models import Device
-from monitoring.infrastructure.models import OutboxItem
+from app.shared.infrastructure.database import db
+from app.iam.infrastructure.models import Device
+from app.detection.infrastructure.models import OutboxItem
 
 
 @pytest.fixture

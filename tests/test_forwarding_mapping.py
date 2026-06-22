@@ -1,8 +1,8 @@
 """Unit tests for the edge -> backend payload mapping."""
 from datetime import datetime
 
-from monitoring.domain.entities import DetectedRepetition
-from monitoring.infrastructure.backend_forwarder import repetition_payload
+from app.detection.domain.entities import DetectedRepetition
+from app.detection.infrastructure.backend_forwarder import repetition_payload
 
 
 def _rep(classification="good"):

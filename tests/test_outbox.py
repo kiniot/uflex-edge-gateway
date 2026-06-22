@@ -1,5 +1,5 @@
 """Unit tests for the durable outbox (FIFO + status transitions)."""
-from monitoring.infrastructure.repositories import OutboxRepository
+from app.detection.infrastructure.repositories import OutboxRepository
 
 
 def test_fifo_order_and_mark_sent(memory_db):

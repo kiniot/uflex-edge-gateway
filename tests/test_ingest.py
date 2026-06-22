@@ -1,8 +1,8 @@
 """Integration-ish tests for the ingest pipeline (sample -> detector -> outbox)."""
-from monitoring.application.services import SampleIngestService
-from monitoring.application.state import EdgeRuntimeState
-from monitoring.domain.entities import ExecutionContext
-from monitoring.infrastructure.repositories import OutboxRepository
+from app.detection.application.services import SampleIngestService
+from app.detection.application.state import EdgeRuntimeState
+from app.detection.domain.entities import ExecutionContext
+from app.detection.infrastructure.repositories import OutboxRepository
 
 KIT = "uflex-kit-001"
 

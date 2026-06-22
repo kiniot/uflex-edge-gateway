@@ -70,14 +70,14 @@ Responsible for identifying IoT Kits and validating their credentials.
 - **Core concept**: `Device` (an IoT Kit identified by its serial number)
 - **Primary responsibility**: authenticate incoming requests from kits
 
-### 2. Monitoring
+### 2. Detection
 
 Responsible for validating and storing movement telemetry.
 
 - **Core concept**: `MovementRecord`
 - **Primary responsibility**: accept joint flexion angle readings and persist them
 
-The Monitoring context depends on IAM only for device validation, which keeps the
+The Detection context depends on IAM only for device validation, which keeps the
 telemetry model decoupled from authentication details.
 
 ## Layered Architecture
@@ -95,20 +95,24 @@ Each bounded context follows the same DDD-inspired structure:
 ### Project Structure
 
 ```text
-uflex_edge_gateway/
-├── app.py
-├── monitoring/
-│   ├── domain/
-│   ├── application/
-│   ├── infrastructure/
-│   └── interfaces/
-├── iam/
-│   ├── domain/
-│   ├── application/
-│   ├── infrastructure/
-│   └── interfaces/
-├── shared/
-│   └── infrastructure/
+uflex-edge-gateway/
+├── app/
+│   ├── main.py
+│   ├── detection/
+│   │   ├── domain/
+│   │   ├── application/
+│   │   ├── infrastructure/
+│   │   └── interfaces/
+│   ├── iam/
+│   │   ├── domain/
+│   │   ├── application/
+│   │   ├── infrastructure/
+│   │   └── interfaces/
+│   └── shared/
+│       ├── infrastructure/
+│       └── interfaces/
+├── tests/
+├── pytest.ini
 └── docs/
 ```
 
@@ -141,10 +145,12 @@ pip install -r requirements.txt
 ### 3. Run the service
 
 ```sh
-python app.py
+python -m app.main
 ```
 
-The Flask application runs in debug mode when started this way.
+The Flask application runs in debug mode when started this way. Run it as a
+module (`-m`) from the repository root, not `python app/main.py`, so the
+absolute `app.*` imports resolve.
 
 ## Runtime Behavior
 

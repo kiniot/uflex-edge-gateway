@@ -33,7 +33,7 @@ Remove-Item .\uflex_edge.db -ErrorAction SilentlyContinue
 ### 1.2 Levantar el edge (Flask)
 ```powershell
 .\.venv\Scripts\Activate.ps1
-python app.py
+python -m app.main
 ```
 Queda escuchando en `http://0.0.0.0:5000` (todas las interfaces, para que el ESP32/Wokwi alcance la laptop por su IP de LAN).
 

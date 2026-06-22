@@ -1,6 +1,6 @@
 # Movement Monitoring API — Edge Contract
 
-This document describes the HTTP contract of the **Monitoring** bounded context:
+This document describes the HTTP contract of the **Detection** bounded context:
 what an IoT Kit (or any client) must **send**, what the gateway **returns**, and
 what the edge **processes** in between.
 

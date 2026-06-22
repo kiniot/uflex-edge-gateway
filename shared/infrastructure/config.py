@@ -9,6 +9,8 @@ Environment variables:
         without the ``/api/v1`` suffix. Defaults to ``http://localhost:8080``.
     UFLEX_EDGE_EMAIL: Login email of this edge's service account.
     UFLEX_EDGE_PASSWORD: Password of this edge's service account.
+    UFLEX_KIT_SERIAL: Serial of the single kit this edge serves (1 edge ↔ 1 kit).
+        Defaults to ``uflex-kit-001`` (the dev test kit).
 """
 import os
 from dataclasses import dataclass
@@ -22,13 +24,19 @@ class EdgeConfig:
         backend_url (str): Base URL of the backend, trailing slash stripped.
         edge_email (str): Service-account login email.
         edge_password (str): Service-account password.
+        kit_serial (str): Serial of the kit this edge serves (for correlation).
         request_timeout_seconds (float): Per-request HTTP timeout.
+        poll_interval_seconds (float): Cadence of the active-session poller.
+        forward_interval_seconds (float): Cadence of the outbox forwarding worker.
     """
 
     backend_url: str
     edge_email: str
     edge_password: str
+    kit_serial: str
     request_timeout_seconds: float = 10.0
+    poll_interval_seconds: float = 3.0
+    forward_interval_seconds: float = 1.0
 
     @staticmethod
     def from_env() -> "EdgeConfig":
@@ -42,8 +50,10 @@ class EdgeConfig:
         backend_url = os.environ.get("UFLEX_BACKEND_URL", "http://localhost:8080").rstrip("/")
         edge_email = os.environ.get("UFLEX_EDGE_EMAIL", "")
         edge_password = os.environ.get("UFLEX_EDGE_PASSWORD", "")
+        kit_serial = os.environ.get("UFLEX_KIT_SERIAL", "uflex-kit-001")
         return EdgeConfig(
             backend_url=backend_url,
             edge_email=edge_email,
             edge_password=edge_password,
+            kit_serial=kit_serial,
         )

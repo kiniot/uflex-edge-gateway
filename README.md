@@ -1,6 +1,6 @@
 # uFlex Edge Gateway
 
-`uflex_edge_gateway` is a lightweight IoT edge API for ingesting range-of-motion
+`uflex-edge-gateway` is a lightweight IoT edge API for ingesting range-of-motion
 telemetry emitted by uFlex IoT Kits during tele-rehabilitation sessions. The
 service follows a Domain-Driven Design (DDD) approach and separates the
 device-authentication concerns from the movement-telemetry ingestion concerns.

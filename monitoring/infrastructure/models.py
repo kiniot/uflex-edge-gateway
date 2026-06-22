@@ -1,86 +1,48 @@
 """Peewee ORM model for the Monitoring bounded context.
 
-Defines the ``movement_records`` database table structure used to persist
-:class:`~monitoring.domain.entities.MovementRecord` domain entities.  This
-module belongs to the infrastructure layer and must not be referenced directly
-from the domain or application layers; access is mediated through the
-repository.
+The edge persists only what must survive a restart: the **outbox** of detected
+items pending forwarding to the backend. Raw samples are a transient in-memory
+window (not a durable table), and the per-serie execution result is owned by the
+backend — so neither is stored here.
 """
-from peewee import (
-    Model, AutoField, FloatField, CharField, DateTimeField,
-    IntegerField, BooleanField,
-)
+from peewee import Model, AutoField, CharField, TextField, DateTimeField
 
 from shared.infrastructure.database import db
 
 
-class MovementRecord(Model):
-    """ORM mapping for the ``movement_records`` table.
+class OutboxItem(Model):
+    """ORM mapping for the ``outbox`` table.
 
-    Each row represents a single joint flexion reading submitted by a
-    registered uFlex IoT Kit.
+    A durable queue of items the edge has detected and must forward to the
+    backend idempotently. Survives restarts so a transient network outage never
+    loses a repetition.
 
     Attributes:
-        id (AutoField): Auto-incrementing integer primary key assigned by the
-            database on insert.
-        device_id (CharField): Reference to the kit that produced the reading.
-            Stored as a plain string (not a FK constraint) to keep the bounded
-            contexts loosely coupled.
-        serie_id (CharField): Reference to the open series this reading belongs
-            to (the ``serie_id`` of the OPEN ``serie_executions`` row at ingest
-            time).  ``null`` when the reading arrived with no series open.  This
-            is what links the raw buffer to its chewed result, so both tables can
-            be filtered by the same ``serie_id``.
-        angle (FloatField): Joint flexion angle measured in degrees.
-        created_at (DateTimeField): UTC timestamp of when the reading was
-            captured by the kit.
+        id (AutoField): Insertion order — drives FIFO flush.
+        kind (CharField): ``'repetition'`` | ``'compensatory'`` — selects the
+            backend endpoint.
+        serial_number (CharField): Kit the item belongs to.
+        session_id (CharField): Backend therapy session (URL path).
+        serie_id (CharField): Backend serie within the session (URL path).
+        edge_sequence_id (CharField): Idempotency key (UUID), sent as the
+            ``X-Edge-Sequence-Id`` header; the backend deduplicates on it.
+        payload (TextField): JSON body to POST, ready to send.
+        forward_status (CharField): ``'PENDING'`` | ``'SENT'``.
+        created_at (DateTimeField): When the item was enqueued (UTC).
     """
 
     id = AutoField()
-    device_id = CharField()
-    serie_id = CharField(null=True)
-    angle = FloatField()
+    kind = CharField()
+    serial_number = CharField()
+    session_id = CharField()
+    serie_id = CharField()
+    edge_sequence_id = CharField()
+    payload = TextField()
+    forward_status = CharField(default="PENDING")
     created_at = DateTimeField()
 
     class Meta:
         """Peewee metadata: binds the model to the shared database and names the table."""
 
         database = db
-        table_name = 'movement_records'
-
-
-class SerieExecution(Model):
-    """ORM mapping for the ``serie_executions`` table.
-
-    Each row is the durable, chewed result of one executed therapy series:
-    repetition outcome (good/bad), achieved range of motion and quality score.
-    Raw ``movement_records`` are a transient buffer; this table is what persists
-    and is forwarded to the backend.
-    """
-
-    id = AutoField()
-    serie_id = CharField(null=True)
-    device_id = CharField()
-    target_rom = FloatField(null=True)
-    target_reps = IntegerField(null=True)
-    movement_type = CharField(null=True)
-    body_part = CharField(null=True)
-    max_safe_angle = FloatField(null=True)
-    started_at = DateTimeField()
-    ended_at = DateTimeField(null=True)
-    status = CharField()
-    reps_done = IntegerField(default=0)
-    good_reps = IntegerField(default=0)
-    bad_reps_incomplete = IntegerField(default=0)
-    bad_reps_unsafe = IntegerField(default=0)
-    avg_rom = FloatField(null=True)
-    min_angle = FloatField(null=True)
-    max_angle = FloatField(null=True)
-    valoracion = FloatField(null=True)
-    dangerous_movement_detected = BooleanField(default=False)
-
-    class Meta:
-        """Peewee metadata: binds the model to the shared database and names the table."""
-
-        database = db
-        table_name = 'serie_executions'
+        table_name = 'outbox'

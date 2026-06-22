@@ -55,3 +55,27 @@ def authenticate_request():
     if not auth_service.authenticate(serial_number, api_key):
         return jsonify({"error": "Invalid serial_number or API key"}), 401
     return None
+
+
+def kit_serial_from_query() -> Optional[str]:
+    """Extract the kit serial from the query string.
+
+    Accepts ``serial_number`` (current contract) and legacy ``device_id``.
+    """
+    return request.args.get("serial_number") or request.args.get("device_id")
+
+
+def authenticate_request_query():
+    """Validate kit identity for a GET request (serial from query + ``X-API-Key``).
+
+    Mirrors :func:`authenticate_request` but reads the serial from the query
+    string instead of the JSON body. Returns a ``(JSON response, 401)`` tuple on
+    failure; ``None`` when authenticated.
+    """
+    serial_number = kit_serial_from_query()
+    api_key = request.headers.get("X-API-Key")
+    if not serial_number or not api_key:
+        return jsonify({"error": "Missing serial_number or X-API-Key"}), 401
+    if not auth_service.authenticate(serial_number, api_key):
+        return jsonify({"error": "Invalid serial_number or API key"}), 401
+    return None

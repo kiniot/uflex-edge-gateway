@@ -1,6 +1,6 @@
 # Movement Monitoring API — Edge Contract
 
-This document describes the HTTP contract of the **Monitoring** bounded context:
+This document describes the HTTP contract of the **Detection** bounded context:
 what an IoT Kit (or any client) must **send**, what the gateway **returns**, and
 what the edge **processes** in between.
 
@@ -28,10 +28,10 @@ what the edge **processes** in between.
 | `GET`  | `/scalar` | No | Interactive API reference (Scalar UI) |
 | `GET`  | `/openapi.json` | No | Machine-readable OpenAPI 3.1 document |
 
-Base URL during development: `http://<laptop-LAN-ip>:5000` (the gateway listens
-on `0.0.0.0:5000`). The LAN IP is DHCP-assigned and changes between networks.
+Base URL during development: `http://<laptop-LAN-ip>:5050` (the gateway listens
+on `0.0.0.0:5050`). The LAN IP is DHCP-assigned and changes between networks.
 
-**Browse it interactively:** open `http://localhost:5000/scalar` for a Scalar API
+**Browse it interactively:** open `http://localhost:5050/scalar` for a Scalar API
 reference of every endpoint below (the same UI used by the uFlex REST API
 backend).
 

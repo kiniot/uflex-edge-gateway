@@ -9,9 +9,9 @@ IAM infrastructure.
 import uuid
 
 from app.detection.application.state import EdgeRuntimeState
-from app.detection.domain.entities import DetectedRepetition
+from app.detection.domain.entities import CompensatoryMovement, DetectedRepetition
 from app.detection.domain.services import build_sample, normalize_joint, window_summary as compute_window_summary
-from app.detection.infrastructure.backend_forwarder import repetition_payload
+from app.detection.infrastructure.backend_forwarder import compensatory_payload, repetition_payload
 from app.detection.infrastructure.repositories import OutboxRepository
 
 
@@ -36,18 +36,21 @@ class SampleIngestService:
             ValueError: On invalid angle/timestamp (mapped to 400 at the interface).
         """
         sample = build_sample(serial_number, angle, created_at, proximal)
-        rep, context, reps_detected = self._state.ingest_sample(serial_number, sample)
-        if rep and context:
+        result = self._state.ingest_sample(serial_number, sample)
+        context = result.context
+        if result.rep and context:
             # Durable path first (the outbox/backend is the source of truth), then the
             # optimistic live push (best-effort; a broker hiccup never loses a rep).
-            self._enqueue_repetition(serial_number, context, rep, sample.recorded_at)
+            self._enqueue_repetition(serial_number, context, result.rep, sample.recorded_at)
             if self._broker is not None:
                 self._broker.publish(serial_number, {
                     "serie_id": context.serie_id,
-                    "reps_detected": reps_detected,
-                    "classification": rep["classification"],
+                    "reps_detected": result.reps_detected,
+                    "classification": result.rep["classification"],
                     "recorded_at": sample.recorded_at.isoformat(),
                 })
+        if result.compensation and context:
+            self._enqueue_compensation(serial_number, context, result.compensation, sample.recorded_at)
         return sample
 
     def ingest_batch(self, serial_number: str, samples: list) -> list:
@@ -82,6 +85,20 @@ class SampleIngestService:
         self._outbox.enqueue(
             "repetition", serial_number, context.session_id, context.serie_id,
             detected.edge_sequence_id, repetition_payload(detected),
+        )
+
+    def _enqueue_compensation(self, serial_number, context, compensation, detected_at):
+        movement = CompensatoryMovement(
+            serial_number=serial_number,
+            session_id=context.session_id,
+            serie_id=context.serie_id,
+            edge_sequence_id=str(uuid.uuid4()),
+            type=compensation["type"],
+            detected_at=detected_at,
+        )
+        self._outbox.enqueue(
+            "compensatory", serial_number, context.session_id, context.serie_id,
+            movement.edge_sequence_id, compensatory_payload(movement),
         )
 
 

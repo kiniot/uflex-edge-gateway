@@ -129,3 +129,43 @@ def test_serie_change_resets_progress_tally(memory_db):
     for angle in [0, 90, 0]:
         service.ingest(KIT, angle, None)
     assert q.get_nowait()["reps_detected"] == 1  # reset, not 2
+
+
+def test_compensation_is_enqueued_for_forwarding(memory_db):
+    state = EdgeRuntimeState()
+    state.update_context(KIT, ExecutionContext(
+        session_id="sess-1", serie_id="ser-1", target_rom=80, max_safe_angle=95))
+    service = SampleIngestService(state, OutboxRepository())
+
+    # angle stalled, proximal sweeping -> compensation over a full window
+    for i in range(20):
+        service.ingest(KIT, 30.0, None, proximal=(0.0 if i % 2 == 0 else 20.0))
+
+    comp = [e for e in OutboxRepository().find_pending() if e.kind == "compensatory"]
+    assert len(comp) == 1
+    assert comp[0].payload == {"type": "ShoulderCompensation"}
+    assert comp[0].edge_sequence_id
+
+
+def test_normal_rep_enqueues_only_repetition_not_compensation(memory_db):
+    state = EdgeRuntimeState()
+    state.update_context(KIT, ExecutionContext(
+        session_id="s", serie_id="r", target_rom=80, max_safe_angle=95))
+    service = SampleIngestService(state, OutboxRepository())
+
+    for angle in [0, 90, 0]:
+        service.ingest(KIT, angle, None, proximal=5.0)  # proximal flat -> no compensation
+
+    assert [e.kind for e in OutboxRepository().find_pending()] == ["repetition"]
+
+
+def test_compensation_without_proximal_enqueues_nothing(memory_db):
+    state = EdgeRuntimeState()
+    state.update_context(KIT, ExecutionContext(
+        session_id="s", serie_id="r", target_rom=80, max_safe_angle=95))
+    service = SampleIngestService(state, OutboxRepository())
+
+    for _ in range(40):
+        service.ingest(KIT, 30.0, None)  # angle stalled but proximal absent
+
+    assert OutboxRepository().count_pending() == 0

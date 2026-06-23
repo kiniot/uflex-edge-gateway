@@ -6,6 +6,7 @@ time and emits a repetition as soon as a flex-and-return cycle completes (rather
 than analysing a whole buffer in batch).
 """
 import logging
+from collections import deque
 from datetime import datetime, timezone
 from statistics import mean
 from typing import Optional
@@ -20,6 +21,17 @@ REP_DETECTION_FRACTION = 0.5
 # Margin added to the target ROM to derive the absolute safety ceiling. The
 # backend does not store maxSafeAngle (the edge derives it); revisit clinically.
 SAFE_MARGIN_DEGREES = 15.0
+
+# Compensation detection (Wave 2). Tunables expressed in SAMPLES (the detector sees
+# the edge publish cadence, ~10 Hz today -> a 20-sample window ~= 2 s); refine on
+# hardware once the magnetometer-anchored proximal yaw is real.
+COMPENSATION_WINDOW_SIZE = 20
+COMPENSATION_PROXIMAL_RANGE_DEG = 15.0
+COMPENSATION_ANGLE_STALL_DEG = 10.0
+COMPENSATION_COOLDOWN_SAMPLES = 20
+# A single proximal IMU (upper arm) cannot separate shoulder hike from trunk lean,
+# so every detection is reported as shoulder compensation for now.
+COMPENSATION_TYPE = "ShoulderCompensation"
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +182,52 @@ class IncrementalRepetitionDetector:
             self._state = "extension"
             self._baseline = self._peak
             return rep
+        return None
+
+
+class CompensationDetector:
+    """Streaming compensation detector: proximal segment moves while the target joint stalls.
+
+    Per-serie instance (reinstalled on serie change, like the repetition detector).
+    Keeps a short sliding window of ``(angle, proximal)`` pairs and fires when the
+    proximal yaw sweeps more than ``proximal_range_threshold`` degrees while the
+    target angle stays within ``angle_stall_threshold`` (the joint is not moving). A
+    cooldown then suppresses further detections so one compensation *episode* yields a
+    single event. No-ops when proximal data is absent (firmware not enriching, or a
+    drifting-yaw guard), so a missing signal can never produce a false positive.
+    """
+
+    def __init__(self, proximal_range_threshold: float = COMPENSATION_PROXIMAL_RANGE_DEG,
+                 angle_stall_threshold: float = COMPENSATION_ANGLE_STALL_DEG,
+                 window_size: int = COMPENSATION_WINDOW_SIZE,
+                 cooldown_samples: int = COMPENSATION_COOLDOWN_SAMPLES):
+        self.proximal_range_threshold = proximal_range_threshold
+        self.angle_stall_threshold = angle_stall_threshold
+        self.cooldown_samples = cooldown_samples
+        self._window: deque = deque(maxlen=window_size)
+        self._cooldown_remaining = 0
+
+    def add_sample(self, angle: float, proximal: Optional[float]) -> Optional[dict]:
+        """Feed one ``(angle, proximal)`` pair; return a compensation dict when one fires, else ``None``."""
+        if proximal is None:
+            return None  # only proximal-bearing samples slide the window / decay the cooldown
+        self._window.append((angle, proximal))
+        if self._cooldown_remaining > 0:
+            self._cooldown_remaining -= 1
+            return None
+        if len(self._window) < self._window.maxlen:
+            return None  # require a full window before judging a sustained episode
+        angles = [a for a, _ in self._window]
+        proximals = [p for _, p in self._window]
+        proximal_range = max(proximals) - min(proximals)
+        angle_range = max(angles) - min(angles)
+        if proximal_range >= self.proximal_range_threshold and angle_range <= self.angle_stall_threshold:
+            self._cooldown_remaining = self.cooldown_samples
+            return {
+                "type": COMPENSATION_TYPE,
+                "proximal_range": round(proximal_range, 2),
+                "angle_range": round(angle_range, 2),
+            }
         return None
 
 

@@ -1,8 +1,8 @@
 """Unit tests for the edge -> backend payload mapping."""
 from datetime import datetime
 
-from app.detection.domain.entities import DetectedRepetition
-from app.detection.infrastructure.backend_forwarder import repetition_payload
+from app.detection.domain.entities import CompensatoryMovement, DetectedRepetition
+from app.detection.infrastructure.backend_forwarder import compensatory_payload, repetition_payload
 
 
 def _rep(classification="good"):
@@ -35,3 +35,13 @@ def test_recorded_at_uses_backend_millisecond_format():
 def test_incomplete_and_unsafe_map_to_pascal_case():
     assert repetition_payload(_rep("incomplete"))["classification"] == "Incomplete"
     assert repetition_payload(_rep("unsafe"))["classification"] == "Unsafe"
+
+
+def test_compensatory_payload_is_type_only():
+    movement = CompensatoryMovement(
+        serial_number="kit", session_id="sess", serie_id="ser",
+        edge_sequence_id="uuid", type="ShoulderCompensation",
+        detected_at=datetime(2026, 6, 22, 5, 13, 50),
+    )
+    # Only the discriminator goes on the wire; ids/detected_at stay edge-internal.
+    assert compensatory_payload(movement) == {"type": "ShoulderCompensation"}

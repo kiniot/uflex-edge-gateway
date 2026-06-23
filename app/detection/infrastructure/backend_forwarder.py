@@ -7,7 +7,7 @@ the ``X-Edge-Sequence-Id`` header, so re-sending the same entry is safe.
 """
 import logging
 
-from app.detection.domain.entities import DetectedRepetition
+from app.detection.domain.entities import CompensatoryMovement, DetectedRepetition
 from app.detection.infrastructure.repositories import OutboxEntry
 from app.shared.infrastructure.backend_client import BackendClient
 
@@ -33,6 +33,15 @@ def repetition_payload(rep: DetectedRepetition) -> dict:
         "classification": _CLASSIFICATION_TO_BACKEND[rep.classification],
         "recordedAt": _format_recorded_at(rep.recorded_at),
     }
+
+
+def compensatory_payload(movement: CompensatoryMovement) -> dict:
+    """Map a :class:`CompensatoryMovement` to the ``recordCompensatoryMovement`` body.
+
+    The backend resource accepts only the discriminator; the timestamp and ids are
+    edge-internal (the backend stamps its own time and dedupes on the header).
+    """
+    return {"type": movement.type}
 
 
 class BackendForwarder:

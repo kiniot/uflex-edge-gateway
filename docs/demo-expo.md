@@ -35,16 +35,16 @@ Remove-Item .\uflex_edge.db -ErrorAction SilentlyContinue
 .\.venv\Scripts\Activate.ps1
 python -m app.main
 ```
-Queda escuchando en `http://0.0.0.0:5000` (todas las interfaces, para que el ESP32/Wokwi alcance la laptop por su IP de LAN).
+Queda escuchando en `http://0.0.0.0:5050` (todas las interfaces, para que el ESP32/Wokwi alcance la laptop por su IP de LAN).
 
 ### 1.3 Saber la IP de la laptop (para el firmware del Wokwi)
 ```powershell
 ipconfig   # busca la IPv4 de tu adaptador de red (ej. 192.168.x.x)
 ```
-El firmware del Wokwi debe hacer POST a `http://<IP-laptop>:5000/api/v1/movement-monitoring/data-records` con el header `X-API-Key: test-api-key-123`.
+El firmware del Wokwi debe hacer POST a `http://<IP-laptop>:5050/api/v1/movement-monitoring/data-records` con el header `X-API-Key: test-api-key-123`.
 
 ### 1.4 Abrir Scalar (la UI de endpoints)
-En el navegador: **`http://localhost:5000/scalar`**
+En el navegador: **`http://localhost:5050/scalar`**
 
 Verás los endpoints agrupados:
 - **Ingestion** → crudo en tiempo real (`GET /data-records`).
@@ -55,7 +55,7 @@ Verás los endpoints agrupados:
 ## 2. Guion de la demo (1 minuto)
 
 ### Paso 1 — Mostrar Scalar vacío
-1. Abre `http://localhost:5000/scalar`.
+1. Abre `http://localhost:5050/scalar`.
 2. Ejecuta **`GET /api/v1/movement-monitoring/data-records`** → responde `[]` (crudo vacío).
 3. Ejecuta **`GET /api/v1/movement-monitoring/series`** → responde `[]` (procesado vacío).
 

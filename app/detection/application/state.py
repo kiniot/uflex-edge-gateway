@@ -7,13 +7,17 @@ because the Flask request thread (ingest) and the correlation poller touch this
 state concurrently. Safe and simple given 1 edge ↔ 1 kit.
 """
 import threading
-from collections import deque
+from collections import deque, namedtuple
 from typing import Optional
 
 from app.detection.domain.entities import ExecutionContext, MovementSample
-from app.detection.domain.services import IncrementalRepetitionDetector
+from app.detection.domain.services import CompensationDetector, IncrementalRepetitionDetector
 
 _WINDOW_SIZE = 500
+
+# What ingest_sample returns: a detected rep (or None), a detected compensation
+# (or None), the active context (or None), and the running per-serie rep tally.
+IngestResult = namedtuple("IngestResult", ["rep", "compensation", "context", "reps_detected"])
 
 
 class _KitState:
@@ -22,6 +26,7 @@ class _KitState:
         self.detector: Optional[IncrementalRepetitionDetector] = None
         self.window: deque = deque(maxlen=_WINDOW_SIZE)
         self.reps_detected: int = 0  # edge-local running tally for the active serie
+        self.compensation_detector: Optional[CompensationDetector] = None
 
 
 class EdgeRuntimeState:
@@ -56,26 +61,27 @@ class EdgeRuntimeState:
             st.context = new_context
             st.detector = (IncrementalRepetitionDetector(new_context.target_rom, new_context.max_safe_angle)
                            if new_context is not None else None)
-            st.reps_detected = 0  # new serie (or clear) -> reset the live tally
+            st.compensation_detector = CompensationDetector() if new_context is not None else None
+            st.reps_detected = 0  # new serie (or clear) -> reset the live tally + detectors
             return True
 
-    def ingest_sample(self, serial: str, sample: MovementSample):
-        """Buffer a sample and feed the detector.
+    def ingest_sample(self, serial: str, sample: MovementSample) -> IngestResult:
+        """Buffer a sample and feed both detectors.
 
-        Returns ``(rep_dict, context, reps_detected)`` when the sample closes a
-        repetition, else ``(None, None, reps_detected)``. ``reps_detected`` is the
-        edge-local running tally for the active serie (resets on serie change).
+        Returns an :class:`IngestResult` (rep, compensation, context, reps_detected).
+        ``rep``/``compensation`` are the detectors' dicts when they fire, else ``None``;
+        ``reps_detected`` is the edge-local running tally for the active serie.
         """
         with self._lock:
             st = self._kit(serial)
             st.window.append(sample)
             if st.context is None or st.detector is None:
-                return None, None, st.reps_detected
+                return IngestResult(None, None, None, st.reps_detected)
             rep = st.detector.add_sample(sample.angle)
+            compensation = st.compensation_detector.add_sample(sample.angle, sample.proximal_signal)
             if rep:
                 st.reps_detected += 1
-                return rep, st.context, st.reps_detected
-            return None, None, st.reps_detected
+            return IngestResult(rep, compensation, st.context, st.reps_detected)
 
     def context(self, serial: str) -> Optional[ExecutionContext]:
         with self._lock:

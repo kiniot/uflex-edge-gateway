@@ -50,4 +50,4 @@ if __name__ == "__main__":
     # localhost), para que el ESP32 pueda alcanzar la laptop por su IP de LAN.
     # threaded=True => atiende la respuesta SSE de larga duración sin bloquear los
     # POST de ingesta del kit (el dev server es single-thread por defecto).
-    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
+    app.run(host="0.0.0.0", port=5050, debug=True, threaded=True)

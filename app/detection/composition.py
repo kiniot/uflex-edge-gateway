@@ -15,6 +15,7 @@ from app.detection.infrastructure.backend_forwarder import BackendForwarder
 from app.detection.infrastructure.repositories import OutboxRepository
 from app.shared.infrastructure.backend_client import BackendClient
 from app.shared.infrastructure.config import EdgeConfig
+from app.shared.infrastructure.network import get_lan_ipv4
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,11 @@ def start_background(config: EdgeConfig = None) -> None:
     config = config or EdgeConfig.from_env()
     client = BackendClient(config)
     forwarder = BackendForwarder(client)
-    poller = CorrelationPoller(config.kit_serial, client, state, config.poll_interval_seconds)
+    lan_url = f"http://{get_lan_ipv4()}:{config.lan_port}"
+    poller = CorrelationPoller(config.kit_serial, client, state, config.poll_interval_seconds,
+                              lan_url=lan_url)
     worker = ForwardingWorker(outbox_repository, forwarder, config.forward_interval_seconds)
     poller.start()
     worker.start()
     _threads = [poller, worker]
-    logger.info("Edge background runtime started (kit=%s)", config.kit_serial)
+    logger.info("Edge background runtime started (kit=%s, lan_url=%s)", config.kit_serial, lan_url)

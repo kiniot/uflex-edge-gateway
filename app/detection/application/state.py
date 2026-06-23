@@ -27,6 +27,10 @@ class _KitState:
         self.window: deque = deque(maxlen=_WINDOW_SIZE)
         self.reps_detected: int = 0  # edge-local running tally for the active serie
         self.compensation_detector: Optional[CompensationDetector] = None
+        # Opaque pairing token the mobile must present to subscribe to this kit's SSE
+        # progress stream. Hydrated from the backend's active-by-device response; None when
+        # no session is active (so an unbound stream cannot be subscribed to).
+        self.pairing_token: Optional[str] = None
 
 
 class EdgeRuntimeState:
@@ -82,6 +86,17 @@ class EdgeRuntimeState:
             if rep:
                 st.reps_detected += 1
             return IngestResult(rep, compensation, st.context, st.reps_detected)
+
+    def set_pairing_token(self, serial: str, token: Optional[str]) -> None:
+        """Store (or clear with ``None``) the pairing token the mobile must present for this kit."""
+        with self._lock:
+            self._kit(serial).pairing_token = token
+
+    def get_pairing_token(self, serial: str) -> Optional[str]:
+        """Return the kit's current pairing token, or ``None`` when no session is active."""
+        with self._lock:
+            st = self._kits.get(serial)
+            return st.pairing_token if st else None
 
     def context(self, serial: str) -> Optional[ExecutionContext]:
         with self._lock:

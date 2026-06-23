@@ -11,6 +11,8 @@ Environment variables:
     UFLEX_EDGE_PASSWORD: Password of this edge's service account.
     UFLEX_KIT_SERIAL: Serial of the single kit this edge serves (1 edge ↔ 1 kit).
         Defaults to ``uflex-kit-001`` (the dev test kit).
+    UFLEX_EDGE_LAN_PORT: TCP port the edge serves on the LAN, used to build the LAN URL it
+        reports to the backend for mobile rendezvous. Defaults to ``5050``.
 """
 import os
 from dataclasses import dataclass
@@ -25,6 +27,7 @@ class EdgeConfig:
         edge_email (str): Service-account login email.
         edge_password (str): Service-account password.
         kit_serial (str): Serial of the kit this edge serves (for correlation).
+        lan_port (int): TCP port the edge serves on the LAN (for the reported LAN URL).
         request_timeout_seconds (float): Per-request HTTP timeout.
         poll_interval_seconds (float): Cadence of the active-session poller.
         forward_interval_seconds (float): Cadence of the outbox forwarding worker.
@@ -34,6 +37,7 @@ class EdgeConfig:
     edge_email: str
     edge_password: str
     kit_serial: str
+    lan_port: int = 5050
     request_timeout_seconds: float = 10.0
     poll_interval_seconds: float = 3.0
     forward_interval_seconds: float = 1.0
@@ -51,9 +55,11 @@ class EdgeConfig:
         edge_email = os.environ.get("UFLEX_EDGE_EMAIL", "")
         edge_password = os.environ.get("UFLEX_EDGE_PASSWORD", "")
         kit_serial = os.environ.get("UFLEX_KIT_SERIAL", "uflex-kit-001")
+        lan_port = int(os.environ.get("UFLEX_EDGE_LAN_PORT", "5050"))
         return EdgeConfig(
             backend_url=backend_url,
             edge_email=edge_email,
             edge_password=edge_password,
             kit_serial=kit_serial,
+            lan_port=lan_port,
         )

@@ -8,6 +8,7 @@ the in-memory window. The batch ``series/start|end`` lifecycle was removed.
 """
 import json
 import queue
+from typing import Optional
 
 from flask import Blueprint, Response, request, jsonify
 
@@ -16,13 +17,30 @@ from app.iam.interfaces.services import (
     authenticate_request_query,
     kit_serial_from_request,
 )
-from app.detection.composition import debug_service, ingest_service, progress_broker
+from app.detection.composition import debug_service, ingest_service, progress_broker, state
 
 detection_api = Blueprint("detection_api", __name__)
 
 # SSE keep-alive: an idle stream emits a comment frame this often so the socket
 # stays open and the client can detect a half-open connection.
 HEARTBEAT_SECONDS = 15
+
+
+def is_pairing_token_valid(expected: Optional[str], provided: Optional[str]) -> bool:
+    """Pure check: a provided pairing token is valid only if it matches a known expected one.
+
+    A missing expected token (no active session for the kit) or a missing/mismatched provided
+    token both fail, so an unbound stream can never be subscribed to.
+    """
+    return bool(expected) and bool(provided) and provided == expected
+
+
+def _extract_pairing_token() -> Optional[str]:
+    """Read the pairing token from ``Authorization: Bearer <token>`` (or a ``pairing_token`` query)."""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[len("Bearer "):].strip()
+    return request.args.get("pairing_token")
 
 
 @detection_api.route("/api/v1/movement-monitoring/data-records", methods=["POST"])
@@ -119,15 +137,19 @@ def stream_progress():
     active serie.
 
     Query params: ``serial_number`` (or legacy ``device_id``) *(required)*.
-
-    NOTE: unsecured on the local LAN by design (channel-first; design contract
-    §13.0.b). FOLLOW-ON (mechanism decided, deferred): mDNS discovery + a pairing
-    token — validate it here (e.g. ``Authorization: Bearer <pairing-token>``) before
-    subscribing.
+    Auth: the mobile presents the session pairing token via ``Authorization: Bearer <token>``
+    (or a ``pairing_token`` query param). The token is minted by the backend per active session,
+    rides on the active-by-device poll into the edge's state, and is compared here before
+    subscribing. There may be a brief window (≤ one poll cycle) right after a session starts where
+    the edge has not cached the token yet → 401; the mobile's retry/backoff absorbs it.
+    The LAN transport itself is still cleartext (TLS is a separate follow-on, §13.0.b).
     """
     serial_number = request.args.get("serial_number") or request.args.get("device_id")
     if not serial_number:
         return jsonify({"error": "Missing serial_number query parameter"}), 400
+
+    if not is_pairing_token_valid(state.get_pairing_token(serial_number), _extract_pairing_token()):
+        return jsonify({"error": "Invalid or missing pairing token"}), 401
 
     def event_stream():
         q = progress_broker.subscribe(serial_number)

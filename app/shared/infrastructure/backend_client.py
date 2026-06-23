@@ -59,6 +59,10 @@ class BackendClient:
         """Perform an authenticated ``POST`` against ``path`` (e.g. ``/api/v1/...``)."""
         return self.request("POST", path, **kwargs)
 
+    def put(self, path: str, **kwargs) -> requests.Response:
+        """Perform an authenticated ``PUT`` against ``path`` (e.g. ``/api/v1/...``)."""
+        return self.request("PUT", path, **kwargs)
+
     def request(self, method: str, path: str, **kwargs) -> requests.Response:
         """Perform an authenticated request, refreshing the token once on ``401``.
 

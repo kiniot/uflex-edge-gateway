@@ -43,7 +43,12 @@ solution:
     `max_safe_angle` from the backend and serves it to the kit
     (`GET .../active-context`)
   - **live progress over SSE**: per-serie repetition tallies pushed to the
-    patient app (`GET .../progress-stream`)
+    patient app (`GET .../progress-stream`), **authenticated with a per-session
+    pairing token** (`Authorization: Bearer`)
+  - **mobile rendezvous**: the edge reports its LAN URL to the backend
+    (`PUT .../iam/edge-service-accounts/me/lan-url`) and caches the session pairing
+    token from `active-by-device`, so the patient app can discover **and**
+    authenticate the SSE channel
   - authenticated backend client (lazy `ROLE_EDGE` sign-in, refresh-on-401)
   - movement analysis (ROM, rep count, min/max/mean, peak velocity, duration —
     `GET .../analysis`) and recent raw readings (`GET .../data-records`)
@@ -53,8 +58,9 @@ solution:
 - **Not implemented yet**
   - sending an actuator decision to the device — the kit now enforces
     `max_safe_angle` **locally** (no network round-trip on the safety path)
-  - **SSE auth/discovery**: the progress stream is currently unauthenticated on
-    the LAN; mDNS discovery + a pairing token is the planned follow-on
+  - **SSE transport hardening**: the pairing-token auth and backend-mediated
+    rendezvous are done (above); **TLS** on the LAN channel and **mDNS** (cloudless
+    discovery) remain follow-ons
   - battery / kit-status telemetry
 
 See [`docs/movement-monitoring-api.md`](docs/movement-monitoring-api.md) for the

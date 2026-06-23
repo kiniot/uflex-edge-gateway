@@ -1,4 +1,5 @@
 """Integration-ish tests for the ingest pipeline (sample -> detector -> outbox)."""
+from app.detection.application.progress_broker import ProgressBroker
 from app.detection.application.services import DebugViewService, SampleIngestService
 from app.detection.application.state import EdgeRuntimeState
 from app.detection.domain.entities import ExecutionContext
@@ -92,3 +93,39 @@ def test_active_context_no_serie_returns_nulls():
 
     assert ctx == {"serial_number": KIT, "active_joint": None,
                    "max_safe_angle": None, "serie_id": None}
+
+
+def test_completed_rep_publishes_progress_event(memory_db):
+    state = EdgeRuntimeState()
+    state.update_context(KIT, ExecutionContext(
+        session_id="sess-1", serie_id="ser-1", target_rom=80, max_safe_angle=95))
+    broker = ProgressBroker()
+    q = broker.subscribe(KIT)
+    service = SampleIngestService(state, OutboxRepository(), broker)
+
+    for angle in [0, 90, 0]:
+        service.ingest(KIT, angle, None)
+
+    event = q.get_nowait()
+    assert event["serie_id"] == "ser-1"
+    assert event["reps_detected"] == 1
+    assert event["classification"] == "good"  # lowercase, not the backend casing
+
+
+def test_serie_change_resets_progress_tally(memory_db):
+    state = EdgeRuntimeState()
+    broker = ProgressBroker()
+    q = broker.subscribe(KIT)
+    service = SampleIngestService(state, OutboxRepository(), broker)
+
+    state.update_context(KIT, ExecutionContext(
+        session_id="s", serie_id="ser-A", target_rom=80, max_safe_angle=95))
+    for angle in [0, 90, 0]:
+        service.ingest(KIT, angle, None)
+    assert q.get_nowait()["reps_detected"] == 1
+
+    state.update_context(KIT, ExecutionContext(
+        session_id="s", serie_id="ser-B", target_rom=80, max_safe_angle=95))
+    for angle in [0, 90, 0]:
+        service.ingest(KIT, angle, None)
+    assert q.get_nowait()["reps_detected"] == 1  # reset, not 2

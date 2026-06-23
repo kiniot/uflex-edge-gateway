@@ -6,16 +6,23 @@ transient window) — detected repetitions are enqueued and forwarded to the bac
 by the background runtime. The GET endpoints are a lightweight live/debug view over
 the in-memory window. The batch ``series/start|end`` lifecycle was removed.
 """
-from flask import Blueprint, request, jsonify
+import json
+import queue
+
+from flask import Blueprint, Response, request, jsonify
 
 from app.iam.interfaces.services import (
     authenticate_request,
     authenticate_request_query,
     kit_serial_from_request,
 )
-from app.detection.composition import debug_service, ingest_service
+from app.detection.composition import debug_service, ingest_service, progress_broker
 
 detection_api = Blueprint("detection_api", __name__)
+
+# SSE keep-alive: an idle stream emits a comment frame this often so the socket
+# stays open and the client can detect a half-open connection.
+HEARTBEAT_SECONDS = 15
 
 
 @detection_api.route("/api/v1/movement-monitoring/data-records", methods=["POST"])
@@ -100,3 +107,42 @@ def get_active_context():
         return auth_result
     serial_number = request.args.get("serial_number") or request.args.get("device_id")
     return jsonify(debug_service.active_context(serial_number)), 200
+
+
+@detection_api.route("/api/v1/movement-monitoring/progress-stream", methods=["GET"])
+def stream_progress():
+    """Server-Sent Events stream of live repetition progress for a kit.
+
+    The mobile app subscribes for instant rep-count feedback and reconciles against
+    the backend's authoritative ``/progress`` poll, so this stream is best-effort
+    and optimistic. Each ``rep`` event carries the edge-local absolute tally for the
+    active serie.
+
+    Query params: ``serial_number`` (or legacy ``device_id``) *(required)*.
+
+    NOTE: unsecured on the local LAN by design (channel-first; design contract
+    §13.0.b). FOLLOW-ON (mechanism decided, deferred): mDNS discovery + a pairing
+    token — validate it here (e.g. ``Authorization: Bearer <pairing-token>``) before
+    subscribing.
+    """
+    serial_number = request.args.get("serial_number") or request.args.get("device_id")
+    if not serial_number:
+        return jsonify({"error": "Missing serial_number query parameter"}), 400
+
+    def event_stream():
+        q = progress_broker.subscribe(serial_number)
+        try:
+            yield ": connected\n\n"  # prime the stream so the client's onOpen fires
+            while True:
+                try:
+                    event = q.get(timeout=HEARTBEAT_SECONDS)
+                    yield f"event: rep\ndata: {json.dumps(event)}\n\n"
+                except queue.Empty:
+                    yield ": heartbeat\n\n"
+        finally:
+            progress_broker.unsubscribe(serial_number, q)
+
+    response = Response(event_stream(), mimetype="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response

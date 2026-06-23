@@ -23,9 +23,11 @@ class SampleIngestService:
     fresh idempotency UUID) and appends it to the durable outbox for forwarding.
     """
 
-    def __init__(self, state: EdgeRuntimeState, outbox_repo: OutboxRepository = None):
+    def __init__(self, state: EdgeRuntimeState, outbox_repo: OutboxRepository = None,
+                 progress_broker=None):
         self._state = state
         self._outbox = outbox_repo or OutboxRepository()
+        self._broker = progress_broker
 
     def ingest(self, serial_number: str, angle, created_at, proximal=None):
         """Process one sample; returns the built :class:`MovementSample`.
@@ -34,9 +36,18 @@ class SampleIngestService:
             ValueError: On invalid angle/timestamp (mapped to 400 at the interface).
         """
         sample = build_sample(serial_number, angle, created_at, proximal)
-        rep, context = self._state.ingest_sample(serial_number, sample)
+        rep, context, reps_detected = self._state.ingest_sample(serial_number, sample)
         if rep and context:
+            # Durable path first (the outbox/backend is the source of truth), then the
+            # optimistic live push (best-effort; a broker hiccup never loses a rep).
             self._enqueue_repetition(serial_number, context, rep, sample.recorded_at)
+            if self._broker is not None:
+                self._broker.publish(serial_number, {
+                    "serie_id": context.serie_id,
+                    "reps_detected": reps_detected,
+                    "classification": rep["classification"],
+                    "recorded_at": sample.recorded_at.isoformat(),
+                })
         return sample
 
     def ingest_batch(self, serial_number: str, samples: list) -> list:

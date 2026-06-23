@@ -21,6 +21,7 @@ class _KitState:
         self.context: Optional[ExecutionContext] = None
         self.detector: Optional[IncrementalRepetitionDetector] = None
         self.window: deque = deque(maxlen=_WINDOW_SIZE)
+        self.reps_detected: int = 0  # edge-local running tally for the active serie
 
 
 class EdgeRuntimeState:
@@ -55,21 +56,26 @@ class EdgeRuntimeState:
             st.context = new_context
             st.detector = (IncrementalRepetitionDetector(new_context.target_rom, new_context.max_safe_angle)
                            if new_context is not None else None)
+            st.reps_detected = 0  # new serie (or clear) -> reset the live tally
             return True
 
     def ingest_sample(self, serial: str, sample: MovementSample):
         """Buffer a sample and feed the detector.
 
-        Returns ``(rep_dict, context)`` when the sample closes a repetition, else
-        ``(None, None)``. ``rep_dict`` is the classified repetition from the detector.
+        Returns ``(rep_dict, context, reps_detected)`` when the sample closes a
+        repetition, else ``(None, None, reps_detected)``. ``reps_detected`` is the
+        edge-local running tally for the active serie (resets on serie change).
         """
         with self._lock:
             st = self._kit(serial)
             st.window.append(sample)
             if st.context is None or st.detector is None:
-                return None, None
+                return None, None, st.reps_detected
             rep = st.detector.add_sample(sample.angle)
-            return (rep, st.context) if rep else (None, None)
+            if rep:
+                st.reps_detected += 1
+                return rep, st.context, st.reps_detected
+            return None, None, st.reps_detected
 
     def context(self, serial: str) -> Optional[ExecutionContext]:
         with self._lock:

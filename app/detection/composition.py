@@ -8,6 +8,7 @@ import logging
 
 from app.detection.application.correlation import CorrelationPoller
 from app.detection.application.forwarding import ForwardingWorker
+from app.detection.application.progress_broker import ProgressBroker
 from app.detection.application.services import DebugViewService, SampleIngestService
 from app.detection.application.state import EdgeRuntimeState
 from app.detection.infrastructure.backend_forwarder import BackendForwarder
@@ -20,7 +21,8 @@ logger = logging.getLogger(__name__)
 # Shared singletons (one edge process).
 state = EdgeRuntimeState()
 outbox_repository = OutboxRepository()
-ingest_service = SampleIngestService(state, outbox_repository)
+progress_broker = ProgressBroker()
+ingest_service = SampleIngestService(state, outbox_repository, progress_broker)
 debug_service = DebugViewService(state)
 
 _threads: list = []

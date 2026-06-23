@@ -8,6 +8,13 @@ __pycache__/
 venv/
 env/
 
+# Testing and linting
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
 # Distribution / packaging
 build/
 dist/
@@ -15,6 +22,9 @@ dist/
 
 # Local SQLite database (edge persistence)
 *.db
+*.db-journal
+*.db-shm
+*.db-wal
 *.sqlite3
 
 # Runtime logs
@@ -23,11 +33,15 @@ dist/
 # Environment variables
 .env
 .env.*
+!.env.example
 
 # IDE / editor
 .idea/
 .vscode/
 *.swp
+
+# Claude Code (per-developer local config)
+.claude/settings.local.json
 
 # OS
 .DS_Store

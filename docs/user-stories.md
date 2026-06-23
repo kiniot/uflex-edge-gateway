@@ -16,7 +16,7 @@ handling, persistence guarantees, and service readiness.
 The acceptance criteria focus on observable edge-gateway behavior rather than
 user interface details. They reflect the current implemented scope of the
 solution and align with the Domain-Driven Design approach used in the project,
-particularly the Monitoring and IAM bounded contexts and their domain,
+particularly the Detection and IAM bounded contexts and their domain,
 application, infrastructure, and interface layers.
 
 ### TS-UEG-001 — Ingest an Authenticated Movement Record
@@ -141,6 +141,6 @@ Acceptance criteria:
 
 ## Story-to-Context Mapping
 
-- **Monitoring bounded context**: `TS-UEG-001`, `TS-UEG-003`, `TS-UEG-004`, `TS-UEG-005`
+- **Detection bounded context**: `TS-UEG-001`, `TS-UEG-003`, `TS-UEG-004`, `TS-UEG-005`
 - **IAM bounded context**: `TS-UEG-002`
 - **Application bootstrap / shared infrastructure**: `TS-UEG-006`

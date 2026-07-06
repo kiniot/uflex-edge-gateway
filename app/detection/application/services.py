@@ -11,7 +11,7 @@ import uuid
 
 from app.detection.application.state import EdgeRuntimeState
 from app.detection.domain.entities import CompensatoryMovement, DetectedRepetition
-from app.detection.domain.services import build_sample, normalize_joint, window_summary as compute_window_summary
+from app.detection.domain.services import build_sample, normalize_joint, normalize_movement, window_summary as compute_window_summary
 from app.detection.infrastructure.backend_forwarder import compensatory_payload, repetition_payload
 from app.detection.infrastructure.repositories import OutboxRepository
 
@@ -120,14 +120,16 @@ class DebugViewService:
     def active_context(self, serial_number: str) -> dict:
         """Return the kit's active serie context for the firmware down-channel.
 
-        Shape: ``{serial_number, active_joint, max_safe_angle, serie_id}`` with
-        nulls when no serie is active. ``active_joint`` is the normalized joint
-        enum (ELBOW/WRIST) the firmware maps to an IMU pair.
+        Shape: ``{serial_number, active_joint, active_movement, max_safe_angle, serie_id}`` with
+        nulls when no serie is active. ``active_joint`` (ELBOW/WRIST) and ``active_movement``
+        (FLEXION/EXTENSION/PRONATION/SUPINATION) let the firmware pick the IMU pair by movement, not
+        just joint (pron/sup must measure the forearm against the upper arm, not the hand).
         """
         context = self._state.context(serial_number)
         return {
             "serial_number": serial_number,
             "active_joint": normalize_joint(context.body_part) if context else None,
+            "active_movement": normalize_movement(context.movement_type) if context else None,
             "max_safe_angle": context.max_safe_angle if context else None,
             "serie_id": context.serie_id if context else None,
         }

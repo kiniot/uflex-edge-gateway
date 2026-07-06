@@ -84,14 +84,14 @@ def test_active_context_normalizes_joint():
 
     ctx = DebugViewService(state).active_context(KIT)
 
-    assert ctx == {"serial_number": KIT, "active_joint": "ELBOW",
+    assert ctx == {"serial_number": KIT, "active_joint": "ELBOW", "active_movement": "FLEXION",
                    "max_safe_angle": 95, "serie_id": "r"}
 
 
 def test_active_context_no_serie_returns_nulls():
     ctx = DebugViewService(EdgeRuntimeState()).active_context(KIT)
 
-    assert ctx == {"serial_number": KIT, "active_joint": None,
+    assert ctx == {"serial_number": KIT, "active_joint": None, "active_movement": None,
                    "max_safe_angle": None, "serie_id": None}
 
 

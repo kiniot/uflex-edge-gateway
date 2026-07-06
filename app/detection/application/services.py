@@ -6,6 +6,7 @@ read-only debug view over the transient window. Cross-context kit authentication
 is enforced at the interface boundary (IAM), so these services do not depend on
 IAM infrastructure.
 """
+import logging
 import uuid
 
 from app.detection.application.state import EdgeRuntimeState
@@ -13,6 +14,8 @@ from app.detection.domain.entities import CompensatoryMovement, DetectedRepetiti
 from app.detection.domain.services import build_sample, normalize_joint, window_summary as compute_window_summary
 from app.detection.infrastructure.backend_forwarder import compensatory_payload, repetition_payload
 from app.detection.infrastructure.repositories import OutboxRepository
+
+logger = logging.getLogger(__name__)
 
 
 class SampleIngestService:
@@ -50,6 +53,12 @@ class SampleIngestService:
                     "recorded_at": sample.recorded_at.isoformat(),
                 })
         if result.compensation and context:
+            # Compensation is otherwise invisible (no live UI channel), so log it when detected:
+            # the proximal segment swept while the target joint stalled -> forwarded to the backend.
+            logger.info(
+                "compensation detected: type=%s proximal_range=%.1f angle_range=%.1f serie=%s "
+                "-> forwarding", result.compensation["type"], result.compensation["proximal_range"],
+                result.compensation["angle_range"], context.serie_id)
             self._enqueue_compensation(serial_number, context, result.compensation, sample.recorded_at)
         return sample
 

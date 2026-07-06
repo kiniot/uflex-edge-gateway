@@ -1,12 +1,14 @@
 """Forwarding worker: drains the outbox to the backend, in order, with retries.
 
 Reads PENDING outbox entries in FIFO order and forwards each via the
-:class:`BackendForwarder`. On the first failure it stops the pass (preserving
-order) and retries on the next cycle — resilient to transient backend/network
-outages without losing or reordering repetitions.
+:class:`BackendForwarder`. A transient failure stops the pass (preserving order) and retries next
+cycle; a permanent rejection quarantines the entry and keeps draining, so one poison entry cannot
+block the queue behind it — resilient to transient outages without losing or reordering the rest.
 """
 import logging
 import threading
+
+from app.detection.infrastructure.backend_forwarder import ForwardOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +38,12 @@ class ForwardingWorker(threading.Thread):
 
     def _drain_once(self) -> None:
         for entry in self._outbox.find_pending(self._batch_size):
-            if self._forwarder.forward(entry):
+            outcome = self._forwarder.forward(entry)
+            if outcome is ForwardOutcome.SENT:
                 self._outbox.mark_sent(entry.id)
+            elif outcome is ForwardOutcome.DROP:
+                # Permanent rejection: quarantine and keep draining so it can't block the queue.
+                self._outbox.mark_failed(entry.id)
             else:
-                # Preserve FIFO order: stop on the first failure, retry next cycle.
+                # Transient (RETRY): preserve FIFO order, stop the pass, retry next cycle.
                 break

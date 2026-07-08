@@ -20,3 +20,16 @@ def test_fifo_order_and_mark_sent(memory_db):
     remaining = repo.find_pending()
     assert [p.edge_sequence_id for p in remaining] == ["uuid-3"]
     assert repo.count_pending() == 1
+
+
+def test_mark_failed_quarantines_and_excludes_from_pending(memory_db):
+    repo = OutboxRepository()
+    poison = repo.enqueue("repetition", "kit", "sess", "ser", "uuid-1", {"n": 1})
+    repo.enqueue("repetition", "kit", "sess", "ser", "uuid-2", {"n": 2})
+
+    repo.mark_failed(poison.id)
+
+    # The quarantined entry drops out of the FIFO so it can't block the rest, but is not deleted.
+    assert [p.edge_sequence_id for p in repo.find_pending()] == ["uuid-2"]
+    assert repo.count_pending() == 1
+    assert repo.count_failed() == 1

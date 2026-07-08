@@ -5,6 +5,8 @@ database, and starts the background runtime (correlation poller + forwarding
 worker) once, before the first request.
 """
 
+import logging
+
 from flask import Flask
 
 from app.detection.interfaces.services import detection_api
@@ -13,6 +15,11 @@ from app.shared.interfaces.docs import docs_api
 from app.shared.infrastructure.database import init_db
 from app.detection.composition import start_background
 from app.iam.application.services import AuthApplicationService
+
+# Surface the app's own INFO logs (correlation context, background runtime). Without this only
+# WARNING+ shows via logging's default handler, hiding the active-context/targetRom diagnostics.
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
 
 app = Flask(__name__)
 app.register_blueprint(iam_api)

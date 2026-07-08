@@ -6,13 +6,16 @@ read-only debug view over the transient window. Cross-context kit authentication
 is enforced at the interface boundary (IAM), so these services do not depend on
 IAM infrastructure.
 """
+import logging
 import uuid
 
 from app.detection.application.state import EdgeRuntimeState
 from app.detection.domain.entities import CompensatoryMovement, DetectedRepetition
-from app.detection.domain.services import build_sample, normalize_joint, window_summary as compute_window_summary
+from app.detection.domain.services import build_sample, normalize_joint, normalize_movement, window_summary as compute_window_summary
 from app.detection.infrastructure.backend_forwarder import compensatory_payload, repetition_payload
 from app.detection.infrastructure.repositories import OutboxRepository
+
+logger = logging.getLogger(__name__)
 
 
 class SampleIngestService:
@@ -50,6 +53,12 @@ class SampleIngestService:
                     "recorded_at": sample.recorded_at.isoformat(),
                 })
         if result.compensation and context:
+            # Compensation is otherwise invisible (no live UI channel), so log it when detected:
+            # the proximal segment swept while the target joint stalled -> forwarded to the backend.
+            logger.info(
+                "compensation detected: type=%s proximal_range=%.1f angle_range=%.1f serie=%s "
+                "-> forwarding", result.compensation["type"], result.compensation["proximal_range"],
+                result.compensation["angle_range"], context.serie_id)
             self._enqueue_compensation(serial_number, context, result.compensation, sample.recorded_at)
         return sample
 
@@ -111,14 +120,16 @@ class DebugViewService:
     def active_context(self, serial_number: str) -> dict:
         """Return the kit's active serie context for the firmware down-channel.
 
-        Shape: ``{serial_number, active_joint, max_safe_angle, serie_id}`` with
-        nulls when no serie is active. ``active_joint`` is the normalized joint
-        enum (ELBOW/WRIST) the firmware maps to an IMU pair.
+        Shape: ``{serial_number, active_joint, active_movement, max_safe_angle, serie_id}`` with
+        nulls when no serie is active. ``active_joint`` (ELBOW/WRIST) and ``active_movement``
+        (FLEXION/EXTENSION/PRONATION/SUPINATION) let the firmware pick the IMU pair by movement, not
+        just joint (pron/sup must measure the forearm against the upper arm, not the hand).
         """
         context = self._state.context(serial_number)
         return {
             "serial_number": serial_number,
             "active_joint": normalize_joint(context.body_part) if context else None,
+            "active_movement": normalize_movement(context.movement_type) if context else None,
             "max_safe_angle": context.max_safe_angle if context else None,
             "serie_id": context.serie_id if context else None,
         }

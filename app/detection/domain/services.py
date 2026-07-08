@@ -59,6 +59,29 @@ def normalize_joint(body_part: Optional[str]) -> Optional[str]:
     return joint
 
 
+# The backend movementType enum names, tolerated case-insensitively. The firmware needs the movement
+# (not just the joint) to pick the IMU pair: pronation/supination is forearm axial rotation, so the
+# hand moves with the forearm and it must be measured against the upper arm (upper-middle), not the
+# hand (middle-lower).
+_MOVEMENT_NAMES = {"flexion": "FLEXION", "extension": "EXTENSION",
+                   "pronation": "PRONATION", "supination": "SUPINATION"}
+
+
+def normalize_movement(movement_type: Optional[str]) -> Optional[str]:
+    """Normalize a backend movement-type string to the firmware movement enum name.
+
+    Returns ``"FLEXION"`` | ``"EXTENSION"`` | ``"PRONATION"`` | ``"SUPINATION"`` | ``None``
+    (case-insensitive). An unmapped, non-empty value is logged at WARNING and returns ``None`` so the
+    firmware falls back to joint-only pair selection rather than a wrong pair.
+    """
+    if not movement_type:
+        return None
+    movement = _MOVEMENT_NAMES.get(movement_type.strip().lower())
+    if movement is None:
+        logger.warning("Unmapped movement_type '%s' (no movement normalization)", movement_type)
+    return movement
+
+
 def _coerce_optional_float(value) -> Optional[float]:
     """Best-effort float coercion that never raises (returns ``None`` on failure)."""
     if value is None:

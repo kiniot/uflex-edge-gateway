@@ -76,9 +76,29 @@ class OutboxRepository:
          .execute())
 
     @staticmethod
+    def mark_failed(entry_id: int) -> None:
+        """Quarantine an item the backend rejected permanently.
+
+        FAILED items are excluded from ``find_pending`` (never retried) so one poison entry cannot
+        block the FIFO queue behind it. They are kept in the table (not deleted) for later inspection.
+        """
+        (OutboxItemModel
+         .update(forward_status="FAILED")
+         .where(OutboxItemModel.id == entry_id)
+         .execute())
+
+    @staticmethod
     def count_pending() -> int:
         """Return how many items are still pending (diagnostics)."""
         return (OutboxItemModel
                 .select()
                 .where(OutboxItemModel.forward_status == "PENDING")
+                .count())
+
+    @staticmethod
+    def count_failed() -> int:
+        """Return how many items were quarantined after a permanent rejection (diagnostics)."""
+        return (OutboxItemModel
+                .select()
+                .where(OutboxItemModel.forward_status == "FAILED")
                 .count())

@@ -1,162 +1,386 @@
-@startuml uFlex Edge Gateway - Class Diagram
+@startuml
+
+title uFlex Edge Gateway - Current Class Diagram
 
 skinparam classAttributeIconSize 0
 skinparam packageStyle rectangle
 skinparam linetype ortho
+skinparam shadowing false
 skinparam handwritten false
 skinparam monochrome false
-skinparam shadowing false
 
-' Define packages for bounded contexts
-package "Monitoring Bounded Context" #DEEAFF {
-  ' Domain Layer
-  package "domain" #E2F0FF {
-    class MovementRecord {
-      id: int
-      device_id: str
-      angle: float
-      created_at: datetime
-      +__init__(device_id, angle, created_at, id)
-    }
-
-    class MovementRecordService {
-      +__init__()
-      +create_record(device_id, angle, created_at): MovementRecord
-    }
-  }
-
-  ' Application Layer
-  package "application" #D5E7FF {
-    class MovementRecordApplicationService {
-      -movement_record_repository: MovementRecordRepository
-      -movement_record_service: MovementRecordService
-      -device_repository: DeviceRepository
-      +__init__()
-      +create_movement_record(device_id, angle, created_at, api_key): MovementRecord
-    }
-  }
-
-  ' Infrastructure Layer
-  package "infrastructure" #C9DFFF {
-    class MovementRecordModel {
-      id: AutoField
-      device_id: CharField
-      angle: FloatField
-      created_at: DateTimeField
-    }
-
-    class MovementRecordRepository {
-      +save(movement_record): MovementRecord
-    }
-  }
-
-  ' Interface Layer
-  package "interfaces" #BCCEFF {
-    class monitoring_api {
-      +create_movement_record(): tuple
-    }
+package "Flask entrypoint" #F5F5F5 {
+  class app <<Flask>> {
+    +setup()
+    +status()
   }
 }
 
 package "IAM Bounded Context" #FFEBDE {
-  ' Domain Layer
   package "domain" #FFF2E8 {
     class Device {
-      device_id: str
+      serial_number: str
       api_key: str
       created_at: datetime
-      +__init__(device_id, api_key, created_at)
     }
 
     class AuthService {
-      +__init__()
-      +authenticate(device): bool
+      +authenticate(device: Device?): bool
     }
   }
 
-  ' Application Layer
   package "application" #FFE6D5 {
     class AuthApplicationService {
       -device_repository: DeviceRepository
       -auth_service: AuthService
-      +__init__()
-      +authenticate(device_id, api_key): bool
+      +authenticate(serial_number, api_key): bool
       +get_or_create_test_device(): Device
     }
   }
 
-  ' Infrastructure Layer
   package "infrastructure" #FFDAC1 {
-    class DeviceModel {
-      device_id: CharField
+    class DeviceModel <<Peewee>> {
+      serial_number: CharField
       api_key: CharField
       created_at: DateTimeField
     }
 
     class DeviceRepository {
-      +find_by_id_and_api_key(device_id, api_key): Device
+      +find_by_serial_and_api_key(serial_number, api_key): Device?
       +get_or_create_test_device(): Device
     }
   }
 
-  ' Interface Layer
   package "interfaces" #FFCEAE {
-    class iam_api {
-      +authenticate_request(): tuple
+    class iam_api <<Blueprint>> {
+      +kit_serial_from_request(): str?
+      +kit_serial_from_query(): str?
+      +authenticate_request()
+      +authenticate_request_query()
+    }
+  }
+}
+
+package "Detection Bounded Context" #DEEAFF {
+  package "domain" #E2F0FF {
+    class MovementSample <<dataclass>> {
+      serial_number: str
+      angle: float
+      recorded_at: datetime
+      proximal_signal: float?
+    }
+
+    class ExecutionContext <<dataclass>> {
+      session_id: str
+      serie_id: str
+      target_rom: float?
+      target_reps: int?
+      movement_type: str?
+      body_part: str?
+      max_safe_angle: float?
+    }
+
+    class DetectedRepetition <<dataclass>> {
+      serial_number: str
+      session_id: str
+      serie_id: str
+      edge_sequence_id: str
+      achieved_rom: float
+      peak_angle: float
+      classification: str
+      met_target: bool
+      unsafe: bool
+      recorded_at: datetime
+      forward_status: str
+    }
+
+    class CompensatoryMovement <<dataclass>> {
+      serial_number: str
+      session_id: str
+      serie_id: str
+      edge_sequence_id: str
+      type: str
+      detected_at: datetime
+      forward_status: str
+    }
+
+    class IncrementalRepetitionDetector {
+      target_rom: float?
+      max_safe_angle: float?
+      excursion_threshold: float
+      +add_sample(angle): dict?
+      +flush(): dict?
+    }
+
+    class CompensationDetector {
+      proximal_range_threshold: float
+      angle_stall_threshold: float
+      +add_sample(angle, proximal): dict?
+    }
+
+    class DetectionDomainServices <<module>> {
+      +build_sample(serial_number, angle, created_at, proximal): MovementSample
+      +derive_max_safe_angle(target_rom): float?
+      +classify_repetition(achieved_rom, peak_angle, target_rom, max_safe_angle): dict
+      +normalize_joint(body_part): str?
+      +normalize_movement(movement_type): str?
+    }
+  }
+
+  package "application" #D5E7FF {
+    class EdgeRuntimeState {
+      -kits: dict
+      -lock: RLock
+      +update_context(serial, new_context): bool
+      +ingest_sample(serial, sample): IngestResult
+      +set_pairing_token(serial, token)
+      +get_pairing_token(serial): str?
+      +context(serial): ExecutionContext?
+      +window(serial): list
+    }
+
+    class SampleIngestService {
+      -state: EdgeRuntimeState
+      -outbox: OutboxRepository
+      -broker: ProgressBroker
+      +ingest(serial_number, angle, created_at, proximal): MovementSample
+      +ingest_batch(serial_number, samples): list
+    }
+
+    class DebugViewService {
+      -state: EdgeRuntimeState
+      +active_context(serial_number): dict
+      +window_summary(serial_number): dict
+      +recent_samples(serial_number, limit): list
+    }
+
+    class CorrelationPoller <<Thread>> {
+      -serial: str
+      -client: BackendClient
+      -state: EdgeRuntimeState
+      -lan_url: str
+      +run()
+      -_poll_once()
+      -_report_lan_url()
+    }
+
+    class ForwardingWorker <<Thread>> {
+      -outbox: OutboxRepository
+      -forwarder: BackendForwarder
+      +run()
+      -_drain_once()
+    }
+
+    class ProgressBroker {
+      -subscribers: dict
+      -lock: Lock
+      +subscribe(serial_number): Queue
+      +unsubscribe(serial_number, q)
+      +publish(serial_number, event)
+    }
+  }
+
+  package "infrastructure" #C9DFFF {
+    class OutboxItemModel <<Peewee>> {
+      id: AutoField
+      kind: CharField
+      serial_number: CharField
+      session_id: CharField
+      serie_id: CharField
+      edge_sequence_id: CharField
+      payload: TextField
+      forward_status: CharField
+      created_at: DateTimeField
+    }
+
+    class OutboxEntry <<dataclass>> {
+      id: int
+      kind: str
+      serial_number: str
+      session_id: str
+      serie_id: str
+      edge_sequence_id: str
+      payload: dict
+      forward_status: str
+    }
+
+    class OutboxRepository {
+      +enqueue(kind, serial_number, session_id, serie_id, edge_sequence_id, payload): OutboxEntry
+      +find_pending(limit): list
+      +mark_sent(entry_id)
+      +mark_failed(entry_id)
+      +count_pending(): int
+      +count_failed(): int
+    }
+
+    class BackendForwarder {
+      -client: BackendClient
+      +forward(entry): ForwardOutcome
+    }
+
+    enum ForwardOutcome {
+      SENT
+      RETRY
+      DROP
+    }
+  }
+
+  package "interfaces" #BCCEFF {
+    class detection_api <<Blueprint>> {
+      +create_movement_record()
+      +list_movement_records()
+      +analyze_movement()
+      +get_active_context()
+      +stream_progress()
+    }
+  }
+
+  package "composition" #CFE2FF {
+    class DetectionComposition <<module>> {
+      state: EdgeRuntimeState
+      outbox_repository: OutboxRepository
+      progress_broker: ProgressBroker
+      ingest_service: SampleIngestService
+      debug_service: DebugViewService
+      +start_background(config)
     }
   }
 }
 
 package "Shared Components" #E8FFE8 {
   package "infrastructure" #D1FFD1 {
-    class db {
+    class EdgeConfig <<dataclass>> {
+      backend_url: str
+      edge_email: str
+      edge_password: str
+      kit_serial: str
+      lan_port: int
+      request_timeout_seconds: float
+      poll_interval_seconds: float
+      forward_interval_seconds: float
+      +from_env(): EdgeConfig
+    }
+
+    class BackendClient {
+      -config: EdgeConfig
+      -session: requests.Session
+      -token: str?
+      +get(path)
+      +post(path)
+      +put(path)
+      +request(method, path)
+    }
+
+    class db <<SqliteDatabase>> {
       +connect()
       +create_tables()
       +close()
     }
 
-    class init_db {
+    class DatabaseModule <<module>> {
       +init_db()
+    }
+
+    class NetworkModule <<module>> {
+      +get_lan_ipv4(): str
+    }
+  }
+
+  package "interfaces" #DFFFF0 {
+    class docs_api <<Blueprint>> {
+      +openapi_document()
+      +scalar_reference()
     }
   }
 }
 
-' Main application
-class app {
-  +setup()
-  +run()
+package "External systems" #FFF7D6 {
+  class "uFlex REST API" as Backend <<external>> {
+    +signIn()
+    +getActiveByDevice()
+    +reportLanUrl()
+    +recordRepetition()
+    +recordCompensatoryMovement()
+  }
+
+  class "uFlex IoT Kit" as Kit <<external>> {
+    +postSamples()
+    +getActiveContext()
+  }
+
+  class "Patient Mobile App" as Mobile <<external>> {
+    +subscribeProgressStream()
+  }
 }
 
-' Relationships
-
-' Monitoring bounded context relationships
-MovementRecordApplicationService --> MovementRecordRepository: uses
-MovementRecordApplicationService --> MovementRecordService: uses
-MovementRecordApplicationService --> DeviceRepository: uses
-MovementRecordRepository --> MovementRecordModel: uses
-MovementRecordRepository ..> MovementRecord: creates
-MovementRecordService ..> MovementRecord: creates
-monitoring_api --> MovementRecordApplicationService: uses
-
-' IAM bounded context relationships
-AuthApplicationService --> DeviceRepository: uses
-AuthApplicationService --> AuthService: uses
-DeviceRepository --> DeviceModel: uses
-DeviceRepository ..> Device: creates
-AuthService ..> Device: authenticates
-iam_api --> AuthApplicationService: uses
-
-' Cross-context relationships
-MovementRecordApplicationService ..> Device: validates
-monitoring_api ..> iam_api: authenticate_request
-
-' Database relationships
-MovementRecordModel --> db: uses
-DeviceModel --> db: uses
-init_db ..> MovementRecordModel: creates tables
-init_db ..> DeviceModel: creates tables
-app ..> init_db: initializes
-app ..> monitoring_api: registers
+' Entrypoint wiring
+app ..> DatabaseModule: initializes
+app ..> AuthApplicationService: seeds test kit
+app ..> DetectionComposition: starts background runtime
 app ..> iam_api: registers
+app ..> detection_api: registers
+app ..> docs_api: registers
+
+' IAM relationships
+AuthApplicationService --> DeviceRepository
+AuthApplicationService --> AuthService
+DeviceRepository --> DeviceModel
+DeviceRepository ..> Device: maps
+AuthService ..> Device: authenticates
+iam_api --> AuthApplicationService
+
+' Detection interface relationships
+detection_api ..> iam_api: authenticates kit requests
+detection_api --> SampleIngestService
+detection_api --> DebugViewService
+detection_api --> ProgressBroker
+detection_api --> EdgeRuntimeState: validates pairing token
+Kit --> detection_api: movement + context HTTP
+Mobile --> detection_api: SSE subscription
+
+' Detection application relationships
+SampleIngestService --> EdgeRuntimeState
+SampleIngestService --> OutboxRepository
+SampleIngestService --> ProgressBroker
+SampleIngestService ..> MovementSample
+SampleIngestService ..> DetectedRepetition
+SampleIngestService ..> CompensatoryMovement
+SampleIngestService ..> DetectionDomainServices
+
+DebugViewService --> EdgeRuntimeState
+CorrelationPoller --> BackendClient
+CorrelationPoller --> EdgeRuntimeState
+CorrelationPoller ..> ExecutionContext
+CorrelationPoller ..> DetectionDomainServices: derive/normalize context
+ForwardingWorker --> OutboxRepository
+ForwardingWorker --> BackendForwarder
+
+EdgeRuntimeState *-- IncrementalRepetitionDetector
+EdgeRuntimeState *-- CompensationDetector
+EdgeRuntimeState o-- ExecutionContext
+EdgeRuntimeState o-- MovementSample: transient window
+
+' Detection infrastructure relationships
+OutboxRepository --> OutboxItemModel
+OutboxRepository ..> OutboxEntry: maps
+BackendForwarder --> BackendClient
+BackendForwarder ..> OutboxEntry
+BackendForwarder ..> ForwardOutcome
+BackendForwarder ..> DetectedRepetition: payload mapping
+BackendForwarder ..> CompensatoryMovement: payload mapping
+
+' Shared infrastructure
+BackendClient --> EdgeConfig
+BackendClient --> Backend: authenticated REST
+DetectionComposition --> EdgeConfig
+DetectionComposition --> BackendClient
+DetectionComposition --> BackendForwarder
+DetectionComposition --> CorrelationPoller
+DetectionComposition --> ForwardingWorker
+DetectionComposition --> NetworkModule
+DeviceModel --> db
+OutboxItemModel --> db
+DatabaseModule ..> DeviceModel: creates table
+DatabaseModule ..> OutboxItemModel: creates table
 
 @enduml

@@ -1,119 +1,111 @@
-# uFlex Edge Gateway
+<h1 align="center">uFlex Edge Gateway</h1>
 
-`uflex-edge-gateway` is a lightweight IoT edge API for ingesting range-of-motion
-telemetry emitted by uFlex IoT Kits during tele-rehabilitation sessions. The
-service follows a Domain-Driven Design (DDD) approach and separates the
-device-authentication concerns from the movement-telemetry ingestion concerns.
+<div align="center">
+  <img src="https://img.shields.io/badge/Python-%3E%3D3.13-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python >=3.13" />
+  <img src="https://img.shields.io/badge/Flask-3.1.3-000000?style=for-the-badge&logo=flask&logoColor=white" alt="Flask 3.1.3" />
+  <img src="https://img.shields.io/badge/Peewee-4.0.5-7A4E2D?style=for-the-badge" alt="Peewee 4.0.5" />
+  <img src="https://img.shields.io/badge/SQLite-Edge_DB-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite Edge DB" />
+  <br />
+  <img src="https://img.shields.io/badge/Architecture-DDD-blue?style=flat-square" alt="DDD Architecture" />
+  <img src="https://img.shields.io/badge/API-REST%20%2B%20SSE-48CBB6?style=flat-square" alt="REST + SSE API" />
+  <img src="https://img.shields.io/badge/Docs-Scalar-00BFFF?style=flat-square" alt="Scalar Docs" />
+  <img src="https://img.shields.io/badge/Test-pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white" alt="pytest" />
+</div>
 
-uFlex is a medical-grade tele-rehabilitation platform: patients perform guided
-exercises while an IoT Kit equipped with IMU sensors measures the joint flexion
-angle (range of motion). This gateway is the edge component that authenticates
-each kit and reliably captures its angle readings before they are forwarded to
-the cloud backend.
+---
 
-At its current stage, the service provides:
+`uflex-edge-gateway` is the local IoT edge service that sits between a uFlex
+rehabilitation kit, the patient mobile app, and the uFlex cloud backend. It runs
+on the home/clinic LAN, authenticates one paired kit, receives movement telemetry
+at the kit cadence, detects repetitions and compensatory movements in real time,
+and forwards clinically relevant events to the backend through a durable outbox.
 
-- device (IoT Kit) authentication using `serial_number` + `X-API-Key`
-- ingestion of joint-angle samples and **streaming detection** of repetitions and
-  compensatory movements
-- **durable, idempotent forwarding** of detected events to the cloud backend, plus
-  a live progress stream (SSE) to the patient app
-- SQLite persistence through Peewee ORM
-- a layered architecture aligned with DDD bounded contexts
+The gateway is intentionally stateful at the edge:
+
+- the kit sends authenticated range-of-motion samples over HTTP
+- the edge polls the backend for the active therapy serie assigned to that kit
+- streaming detectors classify repetitions as `good`, `incomplete`, or `unsafe`
+- compensation detection flags proximal movement while the target joint stalls
+- detected events are queued in SQLite and forwarded idempotently to the backend
+- the patient app can subscribe to live progress over Server-Sent Events (SSE)
 
 ## Current Scope
 
-This repository currently implements a focused subset of the uFlex IoT-edge
-solution:
+This repository implements the current uFlex edge runtime for a **single kit per
+edge process** (`1 edge <-> 1 kit`).
 
-- **Implemented**
-  - registration/lookup of a development test kit, identified by `serial_number`
-  - authentication of kit-originated requests (`serial_number` + `X-API-Key`)
-  - **enriched batch ingestion** of joint-angle samples
-    (`{target_angle, proximal_signal}`) at the kit's cadence, plus the legacy
-    single-`angle` path (`POST .../data-records`)
-  - **streaming per-repetition detection** (hysteresis) with quality
-    classification (good / incomplete / unsafe)
-  - **compensation detection**: proximal segment sweeping while the target joint
-    stalls → a `ShoulderCompensation` event
-  - **durable outbox + forwarding worker**: detected reps and compensations are
-    persisted and forwarded to the cloud backend in FIFO order, **idempotently**
-    (`X-Edge-Sequence-Id`) and retried on failure
-  - **active-context poller + endpoint**: pulls the active serie/joint and
-    `max_safe_angle` from the backend and serves it to the kit
-    (`GET .../active-context`)
-  - **live progress over SSE**: per-serie repetition tallies pushed to the
-    patient app (`GET .../progress-stream`), **authenticated with a per-session
-    pairing token** (`Authorization: Bearer`)
-  - **mobile rendezvous**: the edge reports its LAN URL to the backend
-    (`PUT .../iam/edge-service-accounts/me/lan-url`) and caches the session pairing
-    token from `active-by-device`, so the patient app can discover **and**
-    authenticate the SSE channel
-  - authenticated backend client (lazy `ROLE_EDGE` sign-in, refresh-on-401)
-  - movement analysis (ROM, rep count, min/max/mean, peak velocity, duration —
-    `GET .../analysis`) and recent raw readings (`GET .../data-records`)
-  - timestamp normalization to UTC, SQLite persistence (Peewee)
-  - a health check endpoint (`GET /status`) and interactive API docs via Scalar
-    (`GET /scalar`, `GET /openapi.json`)
-- **Not implemented yet**
-  - sending an actuator decision to the device — the kit now enforces
-    `max_safe_angle` **locally** (no network round-trip on the safety path)
-  - **SSE transport hardening**: the pairing-token auth and backend-mediated
-    rendezvous are done (above); **TLS** on the LAN channel and **mDNS** (cloudless
-    discovery) remain follow-ons
-  - battery / kit-status telemetry
+Implemented:
 
-See [`docs/movement-monitoring-api.md`](docs/movement-monitoring-api.md) for the
-full request/response contract and the definition of every processed metric.
+- kit authentication with `serial_number` (or legacy `device_id`) plus
+  `X-API-Key`
+- enriched firmware ingestion:
+  `POST /api/v1/movement-monitoring/data-records` with
+  `samples[{target_angle, proximal_signal?, recorded_at?}]`
+- legacy single-sample ingestion with `{angle, created_at?}` for older clients
+- active-serie correlation by polling the backend endpoint
+  `/api/v1/therapy-sessions/active/by-device/{serial}`
+- active context down-channel for firmware:
+  `active_joint`, `active_movement`, `max_safe_angle`, and `serie_id`
+- incremental hysteresis repetition detection per active serie
+- compensation detection from proximal-segment motion
+- durable SQLite outbox for repetitions and compensatory movements
+- backend forwarding with `ROLE_EDGE` service-account sign-in, bearer refresh on
+  `401`, and `X-Edge-Sequence-Id` idempotency keys
+- mobile rendezvous by reporting the edge LAN URL to the backend
+- live mobile progress via authenticated SSE with the backend-issued
+  `edgePairingToken`
+- in-memory debug views for recent samples and window analysis
+- Scalar/OpenAPI endpoints at `/scalar` and `/openapi.json`; the API contract in
+  this README reflects the current implemented routes
 
-> **Note:** [`docs/edge-execution-design.md`](docs/edge-execution-design.md)
-> predates the per-repetition streaming redesign — its `series start/end/result`
-> lifecycle and the `serie_executions` table no longer exist. The authoritative,
-> up-to-date cross-repo status lives in the patient app's **`EXECUTION-CONTRACT.md`**
-> (section "Estado de implementación (Olas 1–2)").
+Not implemented yet:
 
-Keeping the README aligned with the implemented scope is especially important
-in IoT projects, where device contracts and API behavior must remain explicit
-and dependable.
+- LAN TLS for the mobile SSE channel
+- mDNS/cloudless edge discovery
+- battery or kit-status telemetry
+- production device enrollment; the local development kit is still seeded by the
+  edge process
 
-## Why DDD for an IoT Edge Gateway?
+## Runtime Flow
 
-In IoT systems, devices, telemetry, authentication, and persistence often grow
-quickly and evolve independently. DDD helps keep that complexity manageable by
-organizing the code around business capabilities instead of technical concerns.
+1. The Flask process starts on `0.0.0.0:5050`.
+2. On the first request, the gateway initializes SQLite, creates the `devices`
+   and `outbox` tables, seeds the development kit, and starts background
+   threads.
+3. The correlation poller signs in to the backend as the edge service account,
+   reports this edge's LAN URL, and polls for the active session/serie for
+   `UFLEX_KIT_SERIAL`.
+4. The kit asks for `active-context` and uses `active_joint`,
+   `active_movement`, and `max_safe_angle` to select IMU pairs and enforce local
+   safety.
+5. The kit posts movement batches. The edge buffers a transient in-memory window,
+   feeds the repetition and compensation detectors, and enqueues detected events.
+6. The forwarding worker drains the outbox FIFO. Transient failures are retried;
+   permanent rejections are quarantined so later entries can continue.
+7. The mobile app discovers the edge LAN URL through the backend and subscribes
+   to `progress-stream` using the session pairing token.
 
-This service is split into two bounded contexts:
+Raw samples are **not** durably stored anymore. SQLite persists only kit
+credentials and the forwarding outbox; the backend owns therapy-session results.
 
-### 1. IAM (Identity and Access Management)
+## Architecture
 
-Responsible for identifying IoT Kits and validating their credentials.
+The code follows a DDD-inspired layered architecture organized by bounded
+context:
 
-- **Core concept**: `Device` (an IoT Kit identified by its serial number)
-- **Primary responsibility**: authenticate incoming requests from kits
+- **IAM**: local kit registry and inbound `serial_number` + `X-API-Key`
+  authentication
+- **Detection**: active execution context, streaming sample ingestion,
+  repetition/compensation detection, progress publishing, and outbox forwarding
+- **Shared**: SQLite configuration, backend HTTP client, runtime config, LAN
+  address discovery, and API documentation
 
-### 2. Detection
+Each context is split into:
 
-Responsible for validating and storing movement telemetry.
-
-- **Core concept**: `MovementRecord`
-- **Primary responsibility**: accept joint flexion angle readings and persist them
-
-The Detection context depends on IAM only for device validation, which keeps the
-telemetry model decoupled from authentication details.
-
-## Layered Architecture
-
-Each bounded context follows the same DDD-inspired structure:
-
-- **Domain** — entities and domain services; business rules and invariants; no
-  framework or ORM concerns
-- **Application** — orchestration of use cases; coordinates repositories and
-  domain services
-- **Infrastructure** — Peewee models, repository implementations, persistence
-  details
-- **Interfaces** — Flask HTTP endpoints and request handling
-
-### Project Structure
+- `domain`: entities, value objects, and business rules
+- `application`: use-case orchestration and runtime state
+- `infrastructure`: Peewee models, repositories, backend adapters
+- `interfaces`: Flask routes and request/response handling
 
 ```text
 uflex-edge-gateway/
@@ -132,20 +124,26 @@ uflex-edge-gateway/
 │   └── shared/
 │       ├── infrastructure/
 │       └── interfaces/
+├── docs/
 ├── tests/
-├── pytest.ini
-└── docs/
+├── requirements.txt
+├── requirements-dev.txt
+└── pytest.ini
 ```
+
+![uFlex Edge Gateway class diagram](docs/class-diagram.png)
 
 ## Technology Stack
 
 - Python 3.13+
-- Flask
-- Peewee
-- SQLite
-- python-dateutil
+- Flask 3.1
+- Peewee 4 with SQLite/WAL
+- Requests for backend communication
+- python-dateutil for timestamp parsing
+- pytest for the test suite
 
-Exact Python dependencies are declared in [`requirements.txt`](requirements.txt).
+Exact dependencies are declared in [`requirements.txt`](requirements.txt) and
+[`requirements-dev.txt`](requirements-dev.txt).
 
 ## Getting Started
 
@@ -153,139 +151,228 @@ Exact Python dependencies are declared in [`requirements.txt`](requirements.txt)
 
 ```sh
 python -m venv .venv
-.venv\Scripts\activate    # Windows (PowerShell)
-# source .venv/bin/activate  # Linux / macOS
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\activate
 ```
 
 ### 2. Install dependencies
 
 ```sh
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
-### 3. Run the service
+### 3. Configure the edge
+
+The app reads configuration from environment variables. Copy
+[`.env.example`](.env.example) as a reference, but export the variables in your
+shell or process manager; this project does not depend on `python-dotenv`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `UFLEX_BACKEND_URL` | `http://localhost:8080` | Base URL of the uFlex REST API, without `/api/v1` |
+| `UFLEX_EDGE_EMAIL` | empty | Edge service-account email used to sign in to the backend |
+| `UFLEX_EDGE_PASSWORD` | empty | Edge service-account password |
+| `UFLEX_KIT_SERIAL` | `uflex-kit-001` | Serial of the single kit served by this edge |
+| `UFLEX_EDGE_LAN_PORT` | `5050` | Port used to build the LAN URL reported to the backend |
+
+For local-only ingest/debug calls, the seeded development kit is enough. Backend
+polling and forwarding require `UFLEX_EDGE_EMAIL` and `UFLEX_EDGE_PASSWORD`.
+
+### 4. Run the service
 
 ```sh
 python -m app.main
 ```
 
-The Flask application runs in debug mode when started this way. Run it as a
-module (`-m`) from the repository root, not `python app/main.py`, so the
-absolute `app.*` imports resolve.
+The development server listens on `http://0.0.0.0:5050`. Run it as a module from
+the repository root so absolute `app.*` imports resolve correctly.
 
-## Runtime Behavior
+### 5. Run tests
 
-The application performs bootstrap work before serving the first request:
+```sh
+pytest
+```
 
-- initializes the SQLite database
-- creates the `devices` and `movement_records` tables if they do not exist
-- seeds a development test kit if absent
+## Development Kit
 
-Database initialization is triggered by the Flask `before_request` hook, so the
-setup occurs on the first incoming HTTP request handled by the process.
+On first bootstrap, the gateway seeds this local kit if it does not exist:
 
-## Development Test Kit
-
-For local development, the application seeds the following IoT Kit if it is not
-already present in the database:
-
-- `device_id`: `uflex-kit-001`
+- `serial_number`: `uflex-kit-001`
 - `api_key`: `test-api-key-123`
 
-> [!WARNING]
-> These credentials are hard-coded for local development only. Do not reuse
-> them in production or on real IoT deployments.
+These credentials are for local development only. Do not reuse them in real IoT
+deployments.
 
 ## API Contract
 
-### Create a movement record
+### Health and docs
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/status` | Health check |
+| `GET` | `/openapi.json` | OpenAPI document served by the gateway |
+| `GET` | `/scalar` | Scalar API reference UI |
+
+### Kit ingestion
 
 `POST /api/v1/movement-monitoring/data-records`
 
-Creates a new joint-flexion reading for an authenticated IoT Kit.
-
-#### Required headers
+Required headers:
 
 - `Content-Type: application/json`
 - `X-API-Key: <kit api key>`
 
-#### Request body
+Current firmware batch payload:
 
 ```json
 {
-  "device_id": "uflex-kit-001",
+  "serial_number": "uflex-kit-001",
+  "samples": [
+    {
+      "target_angle": 12.4,
+      "proximal_signal": 2.1
+    },
+    {
+      "target_angle": 28.8,
+      "proximal_signal": 2.4
+    }
+  ]
+}
+```
+
+The edge accepts the batch in order and stamps `recorded_at` on receipt when the
+firmware omits it.
+
+Success response:
+
+```json
+{
+  "serial_number": "uflex-kit-001",
+  "accepted": 2
+}
+```
+
+Legacy single-sample payload:
+
+```json
+{
+  "serial_number": "uflex-kit-001",
   "angle": 92.5,
   "created_at": "2026-05-29T18:23:00-05:00"
 }
 ```
 
-#### Request fields
-
-- `device_id` (`string`, required): unique IoT Kit identifier (serial number)
-- `angle` (`number`, required): joint flexion angle in degrees
-- `created_at` (`string`, optional): ISO 8601 timestamp; when omitted, the
-  service uses the current UTC time
-
-#### Example request
-
-```sh
-curl -X POST http://127.0.0.1:5050/api/v1/movement-monitoring/data-records \
-  -H 'Content-Type: application/json' \
-  -H 'X-API-Key: test-api-key-123' \
-  -d '{
-        "device_id": "uflex-kit-001",
-        "angle": 92.5,
-        "created_at": "2026-05-29T18:23:00-05:00"
-      }'
-```
-
-#### Success response
-
-`201 Created`
+Legacy response:
 
 ```json
 {
-  "id": 1,
-  "device_id": "uflex-kit-001",
+  "serial_number": "uflex-kit-001",
   "angle": 92.5,
-  "created_at": "2026-05-29T23:23:00+00:00Z"
+  "recorded_at": "2026-05-29T23:23:00+00:00"
 }
 ```
 
-#### Error responses
+### Firmware active context
 
-- `400 Bad Request`
-  - missing required fields
-  - invalid angle value
-  - malformed timestamp
-- `401 Unauthorized`
-  - missing `device_id`
-  - missing `X-API-Key`
-  - invalid device/API key pair
+`GET /api/v1/movement-monitoring/active-context?serial_number=uflex-kit-001`
 
-## Operational Notes for IoT Projects
+Required header:
 
-When adapting this gateway for the real uFlex deployment, consider the following:
+- `X-API-Key: <kit api key>`
 
-- **Credential management**: replace hard-coded development credentials with a
-  secure enrollment or provisioning flow tied to the Device bounded context.
-- **Persistence**: SQLite is suitable for local development and lightweight
-  edge deployments, but not ideal for high-write concurrency.
-- **Observability**: add structured logging, trace correlation, and a proper
-  health check endpoint before production use.
-- **Device contracts**: version telemetry payloads carefully so kit firmware
-  and server-side ingestion remain compatible.
-- **Startup lifecycle**: move bootstrap logic out of `before_request` if you
-  need deterministic initialization during container startup.
+Response:
+
+```json
+{
+  "serial_number": "uflex-kit-001",
+  "active_joint": "ELBOW",
+  "active_movement": "FLEXION",
+  "max_safe_angle": 85.0,
+  "serie_id": "123"
+}
+```
+
+When no serie is active, the context fields are `null`.
+
+### Mobile progress stream
+
+`GET /api/v1/movement-monitoring/progress-stream?serial_number=uflex-kit-001`
+
+Authentication:
+
+- preferred: `Authorization: Bearer <edgePairingToken>`
+- fallback/debug: `pairing_token=<edgePairingToken>` query parameter
+
+The stream emits SSE `rep` events:
+
+```text
+event: rep
+data: {"serie_id":"123","reps_detected":1,"classification":"good","recorded_at":"2026-05-29T23:23:00+00:00"}
+```
+
+The stream also emits comment heartbeats while idle.
+
+### Debug views
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/movement-monitoring/data-records?serial_number=...&limit=100` | Recent in-memory samples |
+| `GET` | `/api/v1/movement-monitoring/analysis?serial_number=...` | Summary over the in-memory sample window |
+
+Both endpoints also accept legacy `device_id`.
+
+## Backend Integration
+
+The gateway talks to these backend paths through the authenticated edge service
+account:
+
+- `POST /api/v1/authentication/sign-in`
+- `GET /api/v1/therapy-sessions/active/by-device/{serial}`
+- `PUT /api/v1/iam/edge-service-accounts/me/lan-url`
+- `POST /api/v1/therapy-sessions/{sessionId}/series/{serieId}/repetitions`
+- `POST /api/v1/therapy-sessions/{sessionId}/compensatory-movements`
+
+Forwarded repetitions use this backend payload shape:
+
+```json
+{
+  "peakAngle": 78.3,
+  "achievedRom": 66.1,
+  "classification": "Good",
+  "recordedAt": "2026-05-29 23:23:00.000"
+}
+```
+
+Every forwarded outbox entry includes `X-Edge-Sequence-Id` so backend retries can
+be deduplicated.
+
+## Operational Notes
+
+- The development server is useful for demos and LAN testing; production
+  packaging should provide a real process manager and TLS story.
+- Bootstrap currently happens lazily before the first request.
+- SQLite is configured with WAL and a busy timeout so Flask request threads and
+  the forwarding worker can share the database.
+- If the backend is temporarily down, ingest can still enqueue events; forwarding
+  resumes when connectivity returns.
+- A missing `targetRom` from the backend causes repetitions to classify as
+  `good` unless they cross the derived safety ceiling.
+- `max_safe_angle` is derived at the edge as `target_rom + 15`.
 
 ## Documentation
 
 Additional documentation is available in [`docs/`](docs):
 
-- [`docs/user-stories.md`](docs/user-stories.md): technical stories and
-  acceptance criteria for unattended kit-to-gateway interactions.
-- [`docs/class-diagram.puml`](docs/class-diagram.puml): PlantUML diagram of
-  the bounded contexts, layers, and relationships.
+- [`docs/movement-monitoring-api.md`](docs/movement-monitoring-api.md): movement
+  monitoring request/response details.
+- [`docs/demo-expo.md`](docs/demo-expo.md): demo flow notes.
+- [`docs/user-stories.md`](docs/user-stories.md): technical user stories and
+  acceptance criteria.
+- [`docs/class-diagram.puml`](docs/class-diagram.puml): PlantUML class diagram.
+- [`docs/edge-execution-design.md`](docs/edge-execution-design.md): older
+  execution-design notes; parts of this file predate the current streaming
+  detector and outbox design.
 
 ## License
 

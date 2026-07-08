@@ -62,9 +62,23 @@ class CorrelationPoller(threading.Thread):
         response = self._client.get(f"/api/v1/therapy-sessions/active/by-device/{self._serial}")
         if response.status_code == 200:
             data = response.json()
-            self._state.update_context(self._serial, self._to_context(data))
+            context = self._to_context(data)
+            changed = self._state.update_context(self._serial, context)
             # The pairing token rides on the active-session payload; cache it for SSE auth.
             self._state.set_pairing_token(self._serial, data.get("edgePairingToken"))
+            # Log once per serie change (not every 3s poll). A missing targetRom is the reason every
+            # rep would classify as "good", so surface it loudly instead of silently defaulting.
+            if changed and context is not None:
+                if context.target_rom is None:
+                    logger.warning(
+                        "active serie %s has NO targetRom -> every rep will classify as 'good'; "
+                        "check the plan's rangeOfMotion / backend serie.targetRom",
+                        context.serie_id)
+                else:
+                    logger.info(
+                        "active context: serie=%s bodyPart=%s targetRom=%.1f targetReps=%s "
+                        "maxSafe=%.1f", context.serie_id, context.body_part, context.target_rom,
+                        context.target_reps, context.max_safe_angle)
         elif response.status_code == 404:
             # No active session for this kit -> clear context + token (samples buffered/ignored).
             self._state.update_context(self._serial, None)

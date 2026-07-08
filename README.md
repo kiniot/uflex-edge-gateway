@@ -131,6 +131,8 @@ uflex-edge-gateway/
 └── pytest.ini
 ```
 
+![uFlex Edge Gateway class diagram](docs/class-diagram.png)
+
 ## Technology Stack
 
 - Python 3.13+

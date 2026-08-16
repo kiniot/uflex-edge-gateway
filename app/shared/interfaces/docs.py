@@ -20,7 +20,7 @@ OPENAPI_SPEC = {
     "openapi": "3.1.0",
     "info": {
         "title": "uFlex Edge Gateway API",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "description": (
             "Local edge gateway for the uFlex tele-rehabilitation system. It "
             "authenticates one paired IoT kit, ingests calibrated movement "

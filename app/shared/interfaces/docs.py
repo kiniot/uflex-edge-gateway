@@ -20,58 +20,155 @@ OPENAPI_SPEC = {
     "openapi": "3.1.0",
     "info": {
         "title": "uFlex Edge Gateway API",
-        "version": "1.0.0",
+        "version": "1.0.1",
         "description": (
-            "Edge gateway for a tele-rehabilitation system. Ingests raw joint "
-            "flexion angles from an IoT Kit, processes them into clinical "
-            "metrics (range of motion, repetition quality, series results) and "
-            "evaluates them against backend thresholds."
+            "Local edge gateway for the uFlex tele-rehabilitation system. It "
+            "authenticates one paired IoT kit, ingests calibrated movement "
+            "telemetry, detects repetitions and compensatory movements, exposes "
+            "diagnostic summaries, and streams optimistic progress to the "
+            "patient mobile application."
         ),
     },
     "servers": [{"url": "/", "description": "This gateway"}],
     "tags": [
         {"name": "Health"},
         {"name": "Ingestion",
-         "description": "Raw real-time readings as they arrive from the IoT Kit "
-                        "(the data we store)."},
-        {"name": "Analysis",
-         "description": "On-the-fly digested metrics for a kit (debug view)."},
-        {"name": "Series execution",
-         "description": "Processed series results — the chewed data the backend "
-                        "(and the mobile/web app) would consume."},
+         "description": "Authenticated movement telemetry received from the IoT kit."},
+        {"name": "Diagnostics",
+         "description": "Read-only live views over the transient movement window."},
+        {"name": "Firmware context",
+         "description": "Active exercise context consumed by the kit firmware."},
+        {"name": "Mobile progress",
+         "description": "Best-effort Server-Sent Events used by the patient application."},
     ],
     "components": {
         "securitySchemes": {
-            "ApiKeyAuth": {"type": "apiKey", "in": "header", "name": "X-API-Key"}
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key",
+                "description": "API key provisioned for the paired IoT kit.",
+            },
+            "PairingTokenAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "opaque pairing token",
+                "description": "Session-scoped token returned to the patient mobile application.",
+            },
         },
         "schemas": {
-            "Reading": {
+            "SingleMovementReading": {
                 "type": "object",
-                "required": ["device_id", "angle"],
+                "required": ["serial_number", "angle"],
                 "properties": {
-                    "device_id": {"type": "string", "example": "uflex-kit-001"},
-                    "angle": {"type": "number", "minimum": 0, "maximum": 360, "example": 92.5},
+                    "serial_number": {
+                        "type": "string",
+                        "description": "Cross-service kit identity.",
+                        "example": "uflex-kit-001",
+                    },
+                    "angle": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 360,
+                        "example": 72.5,
+                    },
                     "created_at": {"type": "string", "format": "date-time",
-                                   "example": "2026-06-16T18:23:00-05:00"},
+                                   "example": "2026-08-11T12:00:00-05:00"},
                 },
             },
-            "SeriesStart": {
+            "MovementSample": {
                 "type": "object",
-                "required": ["device_id"],
+                "required": ["target_angle"],
                 "properties": {
-                    "device_id": {"type": "string", "example": "uflex-kit-001"},
-                    "serie_id": {"type": "string", "example": "serie-abc"},
-                    "target_rom": {"type": "number", "example": 70},
-                    "target_reps": {"type": "integer", "example": 4},
-                    "movement_type": {"type": "string", "example": "flexion"},
-                    "body_part": {"type": "string", "example": "codo"},
-                    "max_safe_angle": {"type": "number", "example": 130},
+                    "target_angle": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 360,
+                        "description": "Calibrated angle of the joint being treated.",
+                        "example": 72.0,
+                    },
+                    "proximal_signal": {
+                        "type": ["number", "null"],
+                        "description": "Optional proximal-segment signal used for compensation detection.",
+                        "example": 2.3,
+                    },
+                    "recorded_at": {
+                        "type": ["string", "null"],
+                        "format": "date-time",
+                        "description": "Optional timestamp; the edge stamps the sample when omitted.",
+                    },
                 },
             },
-            "DeviceRef": {
+            "MovementBatch": {
                 "type": "object",
-                "required": ["device_id"],
-                "properties": {"device_id": {"type": "string", "example": "uflex-kit-001"}},
+                "required": ["serial_number", "samples"],
+                "properties": {
+                    "serial_number": {"type": "string", "example": "uflex-kit-001"},
+                    "samples": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"$ref": "#/components/schemas/MovementSample"},
+                    },
+                },
+            },
+            "AcceptedReading": {
+                "type": "object",
+                "required": ["serial_number", "angle", "recorded_at"],
+                "properties": {
+                    "serial_number": {"type": "string", "example": "uflex-kit-001"},
+                    "angle": {"type": "number", "example": 72.5},
+                    "recorded_at": {"type": "string", "format": "date-time"},
+                },
+            },
+            "AcceptedBatch": {
+                "type": "object",
+                "required": ["serial_number", "accepted"],
+                "properties": {
+                    "serial_number": {"type": "string", "example": "uflex-kit-001"},
+                    "accepted": {"type": "integer", "example": 3},
+                },
+            },
+            "MovementRecord": {
+                "type": "object",
+                "properties": {
+                    "serial_number": {"type": "string", "example": "uflex-kit-001"},
+                    "angle": {"type": "number", "example": 72.5},
+                    "recorded_at": {"type": "string", "format": "date-time"},
+                },
+            },
+            "MovementAnalysis": {
+                "type": "object",
+                "properties": {
+                    "serial_number": {"type": "string", "example": "uflex-kit-001"},
+                    "sample_count": {"type": "integer", "example": 11},
+                    "min_angle": {"type": ["number", "null"], "example": 0.0},
+                    "max_angle": {"type": ["number", "null"], "example": 88.0},
+                    "range_of_motion": {"type": ["number", "null"], "example": 88.0},
+                    "mean_angle": {"type": ["number", "null"], "example": 40.55},
+                    "active_serie_id": {"type": ["string", "null"], "example": "serie-abc"},
+                },
+            },
+            "ActiveContext": {
+                "type": "object",
+                "properties": {
+                    "serial_number": {"type": "string", "example": "uflex-kit-001"},
+                    "active_joint": {
+                        "type": ["string", "null"],
+                        "enum": ["ELBOW", "WRIST", None],
+                        "example": "ELBOW",
+                    },
+                    "active_movement": {
+                        "type": ["string", "null"],
+                        "enum": ["FLEXION", "EXTENSION", "PRONATION", "SUPINATION", None],
+                        "example": "FLEXION",
+                    },
+                    "max_safe_angle": {"type": ["number", "null"], "example": 95.0},
+                    "serie_id": {"type": ["string", "null"], "example": "serie-abc"},
+                },
+            },
+            "Error": {
+                "type": "object",
+                "properties": {"error": {"type": "string"}},
             },
         },
     },
@@ -83,101 +180,196 @@ OPENAPI_SPEC = {
                 "responses": {"200": {"description": "Gateway is up"}},
             }
         },
-        "/api/v1/movement-detection/data-records": {
+        "/api/v1/movement-monitoring/data-records": {
             "post": {
                 "tags": ["Ingestion"],
-                "summary": "Ingest one raw angle reading",
+                "summary": "Ingest movement telemetry",
+                "description": (
+                    "Accepts either one legacy-compatible calibrated reading or an ordered "
+                    "firmware batch. The kit serial and X-API-Key are validated together."
+                ),
                 "security": [{"ApiKeyAuth": []}],
                 "requestBody": {
                     "required": True,
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Reading"}}},
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {"$ref": "#/components/schemas/SingleMovementReading"},
+                                    {"$ref": "#/components/schemas/MovementBatch"},
+                                ]
+                            },
+                            "examples": {
+                                "singleReading": {
+                                    "summary": "Single calibrated reading",
+                                    "value": {
+                                        "serial_number": "uflex-kit-001",
+                                        "angle": 72.5,
+                                        "created_at": "2026-08-11T12:00:00-05:00",
+                                    },
+                                },
+                                "movementBatch": {
+                                    "summary": "Ordered flexion movement",
+                                    "value": {
+                                        "serial_number": "uflex-kit-001",
+                                        "samples": [
+                                            {"target_angle": 0.0, "proximal_signal": 2.0},
+                                            {"target_angle": 45.0, "proximal_signal": 2.2},
+                                            {"target_angle": 88.0, "proximal_signal": 2.4},
+                                            {"target_angle": 45.0, "proximal_signal": 2.1},
+                                            {"target_angle": 0.0, "proximal_signal": 2.0},
+                                        ],
+                                    },
+                                },
+                            },
+                        }
+                    },
                 },
                 "responses": {
-                    "201": {"description": "Reading stored"},
-                    "400": {"description": "Missing field or invalid value"},
-                    "401": {"description": "Missing or invalid credentials"},
+                    "201": {
+                        "description": "Reading or batch accepted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "oneOf": [
+                                        {"$ref": "#/components/schemas/AcceptedReading"},
+                                        {"$ref": "#/components/schemas/AcceptedBatch"},
+                                    ]
+                                }
+                            }
+                        },
+                    },
+                    "400": {
+                        "description": "Missing field or invalid value",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+                    },
+                    "401": {
+                        "description": "Missing or invalid kit credentials",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+                    },
                 },
             },
             "get": {
-                "tags": ["Ingestion"],
-                "summary": "List recent raw readings (live view / debugging)",
+                "tags": ["Diagnostics"],
+                "summary": "List recent movement readings",
                 "parameters": [
-                    {"name": "device_id", "in": "query", "schema": {"type": "string"}},
+                    {
+                        "name": "serial_number",
+                        "in": "query",
+                        "required": True,
+                        "schema": {"type": "string"},
+                        "example": "uflex-kit-001",
+                    },
                     {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 100}},
                 ],
-                "responses": {"200": {"description": "Array of readings"}},
+                "responses": {
+                    "200": {
+                        "description": "Recent readings ordered by ingestion",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {"$ref": "#/components/schemas/MovementRecord"},
+                                }
+                            }
+                        },
+                    },
+                    "400": {"description": "Missing serial_number"},
+                },
             },
         },
-        "/api/v1/movement-detection/analysis": {
+        "/api/v1/movement-monitoring/analysis": {
             "get": {
-                "tags": ["Analysis"],
-                "summary": "On-the-fly digested summary + threshold/actuator decision",
+                "tags": ["Diagnostics"],
+                "summary": "Summarize the live movement window",
                 "parameters": [
-                    {"name": "device_id", "in": "query", "required": True, "schema": {"type": "string"}},
-                    {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 200}},
-                    {"name": "target_rom", "in": "query", "schema": {"type": "number"}},
-                    {"name": "max_safe_angle", "in": "query", "schema": {"type": "number"}},
+                    {
+                        "name": "serial_number",
+                        "in": "query",
+                        "required": True,
+                        "schema": {"type": "string"},
+                        "example": "uflex-kit-001",
+                    },
                 ],
                 "responses": {
-                    "200": {"description": "Digested metrics"},
-                    "400": {"description": "Missing device_id"},
+                    "200": {
+                        "description": "Range-of-motion summary over the transient window",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MovementAnalysis"}}},
+                    },
+                    "400": {"description": "Missing serial_number"},
                 },
             }
         },
-        "/api/v1/movement-detection/series/start": {
-            "post": {
-                "tags": ["Series execution"],
-                "summary": "Open a series execution with its target parameters",
+        "/api/v1/movement-monitoring/active-context": {
+            "get": {
+                "tags": ["Firmware context"],
+                "summary": "Get the active exercise context",
+                "description": (
+                    "Returns the joint, movement, safe-angle limit and serie currently "
+                    "correlated from the central backend for this kit."
+                ),
                 "security": [{"ApiKeyAuth": []}],
-                "requestBody": {
-                    "required": True,
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SeriesStart"}}},
-                },
-                "responses": {
-                    "201": {"description": "Series opened"},
-                    "400": {"description": "Missing fields"},
-                    "401": {"description": "Bad credentials"},
-                },
-            }
-        },
-        "/api/v1/movement-detection/series/end": {
-            "post": {
-                "tags": ["Series execution"],
-                "summary": "Close the series: classify reps good/bad, store the result",
-                "security": [{"ApiKeyAuth": []}],
-                "requestBody": {
-                    "required": True,
-                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceRef"}}},
-                },
-                "responses": {
-                    "200": {"description": "Series result with per-repetition breakdown"},
-                    "400": {"description": "Missing fields or no open series"},
-                    "401": {"description": "Bad credentials"},
-                },
-            }
-        },
-        "/api/v1/movement-detection/series": {
-            "get": {
-                "tags": ["Series execution"],
-                "summary": "List processed series results (what the backend consumes)",
                 "parameters": [
-                    {"name": "device_id", "in": "query", "schema": {"type": "string"}},
-                    {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50}},
-                ],
-                "responses": {"200": {"description": "Array of processed series executions"}},
-            }
-        },
-        "/api/v1/movement-detection/series/{execution_id}/result": {
-            "get": {
-                "tags": ["Series execution"],
-                "summary": "Read a stored series execution result",
-                "parameters": [
-                    {"name": "execution_id", "in": "path", "required": True,
-                     "schema": {"type": "integer"}},
+                    {
+                        "name": "serial_number",
+                        "in": "query",
+                        "required": True,
+                        "schema": {"type": "string"},
+                        "example": "uflex-kit-001",
+                    }
                 ],
                 "responses": {
-                    "200": {"description": "Series execution"},
-                    "404": {"description": "Not found"},
+                    "200": {
+                        "description": "Current context; nullable fields mean no active serie",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActiveContext"}}},
+                    },
+                    "401": {"description": "Missing or invalid kit credentials"},
+                },
+            }
+        },
+        "/api/v1/movement-monitoring/progress-stream": {
+            "get": {
+                "tags": ["Mobile progress"],
+                "summary": "Stream live repetition progress",
+                "description": (
+                    "Opens a Server-Sent Events stream. Prefer the bearer pairing token; "
+                    "the pairing_token query parameter is retained as a debug fallback."
+                ),
+                "security": [{"PairingTokenAuth": []}],
+                "parameters": [
+                    {
+                        "name": "serial_number",
+                        "in": "query",
+                        "required": True,
+                        "schema": {"type": "string"},
+                        "example": "uflex-kit-001",
+                    },
+                    {
+                        "name": "pairing_token",
+                        "in": "query",
+                        "required": False,
+                        "deprecated": True,
+                        "schema": {"type": "string"},
+                        "description": "Debug fallback when the Authorization header cannot be set.",
+                    },
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SSE stream of rep events and heartbeat comments",
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {"type": "string"},
+                                "example": (
+                                    "event: rep\n"
+                                    "data: {\"serie_id\":\"serie-abc\",\"reps_detected\":1,"
+                                    "\"classification\":\"good\",\"recorded_at\":"
+                                    "\"2026-08-11T17:00:00+00:00\"}\n\n"
+                                ),
+                            }
+                        },
+                    },
+                    "400": {"description": "Missing serial_number"},
+                    "401": {"description": "Missing or invalid pairing token"},
                 },
             }
         },

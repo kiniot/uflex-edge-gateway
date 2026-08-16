@@ -29,6 +29,20 @@ The gateway is intentionally stateful at the edge:
 - detected events are queued in SQLite and forwarded idempotently to the backend
 - the patient app can subscribe to live progress over Server-Sent Events (SSE)
 
+## Edge API Tour
+
+The gateway exposes a Scalar contract for local ingestion, movement analysis, active firmware context, and mobile progress streaming.
+
+![uFlex Edge Gateway API overview](docs/screenshots/scalar-overview.png)
+
+![Movement analysis contract](docs/screenshots/movement-analysis.png)
+
+Movement-monitoring endpoints accept individual or batched sensor readings and expose processed records and analysis for the active therapy session.
+
+![Firmware active-context contract](docs/screenshots/firmware-context.png)
+
+The firmware polls a compact active context so it can apply the correct joint target and safety threshold at the wearable edge.
+
 ## Current Scope
 
 This repository implements the current uFlex edge runtime for a **single kit per
